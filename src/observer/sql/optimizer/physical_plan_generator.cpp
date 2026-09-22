@@ -20,6 +20,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/calc_physical_operator.h"
 #include "sql/operator/delete_logical_operator.h"
 #include "sql/operator/delete_physical_operator.h"
+#include "sql/operator/update_logical_operator.h"
+#include "sql/operator/update_physical_operator.h"
 #include "sql/operator/explain_logical_operator.h"
 #include "sql/operator/explain_physical_operator.h"
 #include "sql/operator/expr_vec_physical_operator.h"
@@ -41,6 +43,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/group_by_physical_operator.h"
 #include "sql/operator/hash_group_by_physical_operator.h"
 #include "sql/operator/scalar_group_by_physical_operator.h"
+#include "sql/operator/sort_physical_operator.h"
+#include "sql/operator/orderby_logical_operator.h"
 #include "sql/operator/table_scan_vec_physical_operator.h"
 #include "sql/optimizer/physical_plan_generator.h"
 
@@ -75,6 +79,10 @@ RC PhysicalPlanGenerator::create(LogicalOperator &logical_operator, unique_ptr<P
       return create_plan(static_cast<DeleteLogicalOperator &>(logical_operator), oper, session);
     } break;
 
+    case LogicalOperatorType::UPDATE: {
+      return create_plan(static_cast<UpdateLogicalOperator &>(logical_operator), oper, session);
+    } break;
+
     case LogicalOperatorType::EXPLAIN: {
       return create_plan(static_cast<ExplainLogicalOperator &>(logical_operator), oper, session);
     } break;
@@ -85,6 +93,10 @@ RC PhysicalPlanGenerator::create(LogicalOperator &logical_operator, unique_ptr<P
 
     case LogicalOperatorType::GROUP_BY: {
       return create_plan(static_cast<GroupByLogicalOperator &>(logical_operator), oper, session);
+    } break;
+
+    case LogicalOperatorType::ORDER_BY: {
+      return create_plan(static_cast<OrderByLogicalOperator &>(logical_operator), oper, session);
     } break;
 
     default: {
@@ -276,6 +288,32 @@ RC PhysicalPlanGenerator::create_plan(DeleteLogicalOperator &delete_oper, unique
   return rc;
 }
 
+RC PhysicalPlanGenerator::create_plan(UpdateLogicalOperator &update_oper, unique_ptr<PhysicalOperator> &oper, Session* session)
+{
+  vector<unique_ptr<LogicalOperator>> &child_opers = update_oper.children();
+
+  unique_ptr<PhysicalOperator> child_physical_oper;
+
+  RC rc = RC::SUCCESS;
+  if (!child_opers.empty()) {
+    LogicalOperator *child_oper = child_opers.front().get();
+
+    rc = create(*child_oper, child_physical_oper, session);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to create physical operator. rc=%s", strrc(rc));
+      return rc;
+    }
+  }
+
+  oper = unique_ptr<PhysicalOperator>(
+      new UpdatePhysicalOperator(update_oper.table(), update_oper.field(), std::move(update_oper.value_expr())));
+
+  if (child_physical_oper) {
+    oper->add_child(std::move(child_physical_oper));
+  }
+  return rc;
+}
+
 RC PhysicalPlanGenerator::create_plan(ExplainLogicalOperator &explain_oper, unique_ptr<PhysicalOperator> &oper, Session* session)
 {
   vector<unique_ptr<LogicalOperator>> &child_opers = explain_oper.children();
@@ -308,9 +346,44 @@ RC PhysicalPlanGenerator::create_plan(JoinLogicalOperator &join_oper, unique_ptr
     return RC::INTERNAL;
   }
   if (session->hash_join_on() && can_use_hash_join(join_oper)) {
-    // your code here
+    auto hash_join_oper = make_unique<HashJoinPhysicalOperator>();
+
+    // Extract the join condition and set it on the hash join operator.
+    for (auto &predicate : join_oper.get_join_predicates()) {
+      if (predicate->type() == ExprType::COMPARISON) {
+        auto *cmp_expr = static_cast<ComparisonExpr *>(predicate.get());
+        if (cmp_expr->comp() == EQUAL_TO) {
+          hash_join_oper->set_join_condition(
+              make_unique<ComparisonExpr>(cmp_expr->comp(),
+                  cmp_expr->left()->copy(), cmp_expr->right()->copy()));
+          break;
+        }
+      }
+    }
+
+    for (auto &child_oper : child_opers) {
+      unique_ptr<PhysicalOperator> child_physical_oper;
+      rc = create(*child_oper, child_physical_oper, session);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to create physical child oper for hash join. rc=%s", strrc(rc));
+        return rc;
+      }
+      hash_join_oper->add_child(std::move(child_physical_oper));
+    }
+
+    oper = std::move(hash_join_oper);
   } else {
-    unique_ptr<PhysicalOperator> join_physical_oper(new NestedLoopJoinPhysicalOperator());
+    auto join_physical_oper = make_unique<NestedLoopJoinPhysicalOperator>();
+
+    // nested-loop join 本身只做笛卡尔积，这里把第一个连接条件（等值或非等值）交给它，
+    // 在每一行上过滤。非等值连接条件（如 t2.id > t3.id）由谓词下推规则挂到 join_predicates。
+    for (auto &predicate : join_oper.get_join_predicates()) {
+      if (predicate->type() == ExprType::COMPARISON) {
+        join_physical_oper->set_join_condition(predicate->copy());
+        break;
+      }
+    }
+
     for (auto &child_oper : child_opers) {
       unique_ptr<PhysicalOperator> child_physical_oper;
       rc = create(*child_oper, child_physical_oper, session);
@@ -329,7 +402,18 @@ RC PhysicalPlanGenerator::create_plan(JoinLogicalOperator &join_oper, unique_ptr
 
 bool PhysicalPlanGenerator::can_use_hash_join(JoinLogicalOperator &join_oper)
 {
-  // your code here
+  for (auto &predicate : join_oper.get_join_predicates()) {
+    if (predicate->type() == ExprType::COMPARISON) {
+      auto *cmp_expr = static_cast<ComparisonExpr *>(predicate.get());
+      if (cmp_expr->comp() == EQUAL_TO) {
+        // Both sides should be field expressions (column references).
+        if (cmp_expr->left()->type() == ExprType::FIELD &&
+            cmp_expr->right()->type() == ExprType::FIELD) {
+          return true;
+        }
+      }
+    }
+  }
   return false;
 }
 
@@ -368,6 +452,37 @@ RC PhysicalPlanGenerator::create_plan(GroupByLogicalOperator &logical_oper, uniq
   group_by_oper->add_child(std::move(child_physical_oper));
 
   oper = std::move(group_by_oper);
+  return rc;
+}
+
+RC PhysicalPlanGenerator::create_plan(OrderByLogicalOperator &logical_oper, unique_ptr<PhysicalOperator> &oper, Session* session)
+{
+  RC rc = RC::SUCCESS;
+
+  // Copy order_by expressions and DESC flags (preserving names).
+  vector<unique_ptr<Expression>> order_by_exprs;
+  for (auto &expr : logical_oper.order_by()) {
+    auto copy = expr->copy();
+    copy->set_name(expr->name());
+    order_by_exprs.emplace_back(std::move(copy));
+  }
+  const vector<bool> &order_by_desc = logical_oper.order_by_desc();
+
+  auto sort_oper = make_unique<SortPhysicalOperator>(std::move(order_by_exprs), order_by_desc);
+
+  ASSERT(logical_oper.children().size() == 1, "order by operator should have 1 child");
+
+  LogicalOperator             &child_oper = *logical_oper.children().front();
+  unique_ptr<PhysicalOperator> child_physical_oper;
+  rc = create(child_oper, child_physical_oper, session);
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to create child physical operator of order by operator. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  sort_oper->add_child(std::move(child_physical_oper));
+
+  oper = std::move(sort_oper);
   return rc;
 }
 

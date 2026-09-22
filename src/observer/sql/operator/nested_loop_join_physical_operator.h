@@ -14,6 +14,8 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include "common/lang/memory.h"
+#include "sql/expr/expression.h"
 #include "sql/operator/physical_operator.h"
 #include "sql/parser/parse.h"
 
@@ -35,13 +37,20 @@ public:
   virtual double calculate_cost(
       LogicalProperty *prop, const vector<LogicalProperty *> &child_log_props, CostModel *cm) override
   {
-    return 0.0;
+    // cost_nlj = left × right × CPU + output × CPU
+    double left_card  = child_log_props[0]->get_card();
+    double right_card = child_log_props[1]->get_card();
+    double output     = prop->get_card();
+    return left_card * right_card * cm->cpu_op() + output * cm->cpu_op();
   }
 
   RC     open(Trx *trx) override;
   RC     next() override;
   RC     close() override;
   Tuple *current_tuple() override;
+
+  /// @brief 设置等值连接条件。nested-loop join 本身只做笛卡尔积，此条件用于在每行上过滤。
+  void set_join_condition(unique_ptr<Expression> condition) { join_condition_ = std::move(condition); }
 
 private:
   RC left_next();   //! 左表遍历下一条数据
@@ -61,4 +70,5 @@ private:
   JoinedTuple       joined_tuple_;         //! 当前关联的左右两个tuple
   bool              round_done_   = true;  //! 右表遍历的一轮是否结束
   bool              right_closed_ = true;  //! 右表算子是否已经关闭
+  unique_ptr<Expression> join_condition_;  //! 等值连接条件，为空表示纯笛卡尔积
 };

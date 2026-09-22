@@ -40,7 +40,7 @@ enum class ObLsmCliCmdType
 {
 #define DEFINE_OBLSM_CLI_CMD(cmd, str, help) cmd,
   DEFINE_OBLSM_CLI_CMDS
-#undef DEFINE_OBLSM_CLI_CMD
+#undef DEFINE_OBLSM_CLI_CMD  // 取消单行宏文件
 };
 
 struct ObLsmCliUtil

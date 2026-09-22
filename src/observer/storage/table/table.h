@@ -121,7 +121,6 @@ public:
 
   RC sync();
 
-private:
   RC set_value_to_record(char *record_data, const Value &value, const FieldMeta *field);
 
 private:

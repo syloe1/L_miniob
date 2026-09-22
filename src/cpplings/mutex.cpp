@@ -23,7 +23,7 @@ See the Mulan PSL v2 for more details. */
 #include <thread>    // std::thread
 #include <vector>    // std::vector
 #include <cassert>   // assert
-
+#include <mutex>
 struct Node
 {
   int   value;
@@ -31,12 +31,13 @@ struct Node
 };
 
 std::atomic<Node *> list_head(nullptr);
-
+std::mutex          mtx;
 // 向 `list_head` 中添加一个 value 为 `val` 的 Node 节点。
 void append_node(int val)
 {
-  Node *old_head = list_head;
-  Node *new_node = new Node{val, old_head};
+  std::lock_guard<std::mutex> lock(mtx);
+  Node                       *old_head = list_head;
+  Node                       *new_node = new Node{val, old_head};
 
   // TODO: 使用 mutex 来使这段代码线程安全。
   list_head = new_node;

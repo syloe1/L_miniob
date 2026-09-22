@@ -110,7 +110,7 @@ public:
     }
     return str;
   }
-
+  //**逐列比较两个 Tuple**。输出参数 `result`
   virtual RC compare(const Tuple &other, int &result) const
   {
     RC rc = RC::SUCCESS;
@@ -155,6 +155,7 @@ public:
  * @ingroup Tuple
  * @details 直接就是获取表中的一条记录
  */
+// 用来包装单表底层磁盘记录 Record，把一条磁盘上的原始记录，对外暴露成 Tuple 接口。
 class RowTuple : public Tuple
 {
 public:

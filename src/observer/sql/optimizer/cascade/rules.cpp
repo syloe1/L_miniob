@@ -21,4 +21,6 @@ RuleSet::RuleSet()
   add_rule(RuleSetName::PHYSICAL_IMPLEMENTATION, new LogicalCalcToCalc());
   add_rule(RuleSetName::PHYSICAL_IMPLEMENTATION, new LogicalDeleteToDelete());
   add_rule(RuleSetName::PHYSICAL_IMPLEMENTATION, new LogicalPredicateToPredicate());
+  add_rule(RuleSetName::PHYSICAL_IMPLEMENTATION, new LogicalInnerJoinToNestedLoopJoin());
+  add_rule(RuleSetName::PHYSICAL_IMPLEMENTATION, new LogicalInnerJoinToHashJoin());
 }

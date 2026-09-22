@@ -21,7 +21,7 @@ namespace oceanbase {
  */
 struct ObLsmOptions
 {
-  ObLsmOptions(){};
+  ObLsmOptions() {};
 
   // TODO: all params are used for test, need to reset to appropriate values.
   size_t memtable_size = 8 * 1024;
@@ -35,19 +35,21 @@ struct ObLsmOptions
   size_t default_l0_file_num   = 3;
 
   // tired compaction
+  // 梯度总数 > 7 触发梯度合并
   size_t default_run_num = 7;
 
   // default compaction type
   CompactionType type = CompactionType::LEVELED;
 
   // it is used to control whether the WAL is forced to be written to the disk every time a new key is written.
+  // 每一次写入都强制吧日志刷磁盘
   bool force_sync_new_log = true;
 };
 
 // TODO: UNIMPLEMENTED
 struct ObLsmReadOptions
 {
-  ObLsmReadOptions(){};
+  ObLsmReadOptions() {};
 
   int64_t seq = -1;
 };

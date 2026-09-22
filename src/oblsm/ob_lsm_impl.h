@@ -24,7 +24,7 @@ See the Mulan PSL v2 for more details. */
 #include "oblsm/util/ob_lru_cache.h"
 #include "oblsm/compaction/ob_compaction.h"
 #include "oblsm/ob_manifest.h"
-#include "oblsm/wal/ob_lsm_wal.h"
+#include "oblsm/table/wal/ob_lsm_wal.h"
 
 namespace oceanbase {
 
@@ -54,12 +54,13 @@ public:
 
   RC remove(const string_view &key) override;
 
+  // 开启事务
   ObLsmTransaction *begin_transaction() override;
 
   ObLsmIterator *new_iterator(ObLsmReadOptions options) override;
-
+  // 获取当前所有的sstable集合
   SSTablesPtr get_sstables() { return sstables_; }
-
+  // 故障恢复
   RC recover();
   RC batch_put(const std::vector<pair<string, string>> &kvs) override;
 
@@ -67,7 +68,7 @@ public:
   void dump_sstables() override;
 
 private:
-  RC recover_from_wal();
+  RC recover_from_wal(const std::unique_ptr<ObManifestNewMemtable> &new_memtable_record);
   RC recover_from_manifest_records(const std::vector<ObManifestCompaction> &records);
   RC load_manifest_snapshot(const ObManifestSnapshot &snapshot);
   RC load_manifest_sstable(const std::vector<std::vector<uint64_t>> &sstables);
@@ -83,6 +84,7 @@ private:
    *
    * @return RC Status code indicating the success or failure of the freeze operation.
    */
+  // 尝试冻结活跃 MemTable
   RC try_freeze_memtable();
 
   /**
@@ -109,6 +111,7 @@ private:
    * @warning Ensure that the `picked` object is properly populated with valid inputs.
    *
    */
+  // 执行 SSTable 合并（Compaction）
   vector<shared_ptr<ObSSTable>> do_compaction(ObCompaction *compaction);
 
   /**

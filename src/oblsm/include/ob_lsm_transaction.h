@@ -114,10 +114,4 @@ private:
   map<string, string> inner_store_;
 };
 
-/**
- * @class TrxInnerMapIterator
- * @brief An iterator for traversing the transaction's in-memory store
- */
-class TrxInnerMapIterator : public ObLsmIterator
-{};
 }  // namespace oceanbase

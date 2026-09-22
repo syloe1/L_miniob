@@ -60,6 +60,22 @@ RC NestedLoopJoinPhysicalOperator::next()
         return rc;
       }
     }
+
+    // 到这里拿到了一行左表 + 一行右表（joined_tuple_ 已拼好）。
+    // 若设置了等值连接条件，则用它对当前行做过滤，不满足就继续取下一个右表行。
+    if (join_condition_ != nullptr) {
+      Value value;
+      rc = join_condition_->get_value(joined_tuple_, value);
+      if (rc != RC::SUCCESS) {
+        return rc;
+      }
+      if (!value.get_boolean()) {
+        rc = RC::SUCCESS;
+        continue;
+      }
+    }
+
+    return rc;
   }
   return rc;
 }

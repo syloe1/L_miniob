@@ -33,7 +33,7 @@ namespace oceanbase {
 class ObMemTable : public enable_shared_from_this<ObMemTable>
 {
 public:
-  ObMemTable() : comparator_(), table_(comparator_){};
+  ObMemTable() : comparator_(), table_(comparator_) {};
 
   ~ObMemTable() = default;
 
@@ -140,6 +140,7 @@ private:
 class ObMemTableIterator : public ObLsmIterator
 {
 public:
+  // explicit禁止隐式转换
   explicit ObMemTableIterator(shared_ptr<ObMemTable> mem, ObMemTable::Table *table) : mem_(mem), iter_(table) {}
 
   ObMemTableIterator(const ObMemTableIterator &)            = delete;

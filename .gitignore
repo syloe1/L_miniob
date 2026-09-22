@@ -30,3 +30,20 @@ src/observer/sql/parser/lex_sql.cpp
 src/observer/sql/parser/lex_sql.h
 src/observer/sql/parser/yacc_sql.cpp
 src/observer/sql/parser/yacc_sql.hpp
+
+# runtime test database output
+testdb/
+miniob/
+data/miniob/db/
+
+# scratch notes
+thinking.md
+
+# compiled cpplings binaries
+src/cpplings/cas
+src/cpplings/cv
+src/cpplings/lambda
+src/cpplings/lock
+src/cpplings/mutex
+src/cpplings/smartptr
+

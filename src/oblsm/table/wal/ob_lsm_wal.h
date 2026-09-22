@@ -63,7 +63,7 @@ struct WalRecord
  * The data is written to the file in the order: key length, key, value length, value.
  * After writing the data, the system performs a `flush()` operation to ensure the data is persisted.
  */
-class WAL
+class WAL  // Write-Ahead log预写日志
 {
 public:
   /**
@@ -85,7 +85,8 @@ public:
    * @param filename The name of the WAL file to write logs.
    * @return `RC::SUCCESS` if the file was successfully opened, or an error code if it failed.
    */
-  RC open(const std::string &filename) { return RC::UNIMPLEMENTED; }
+  // 打开WAl文件
+  RC open(const std::string &filename);
 
   /**
    * @brief Recovers data from a specified WAL file.
@@ -97,6 +98,7 @@ public:
    * @param wal_records A reference to a vector where the WalRecord objects will be stored.
    * @return `RC::SUCCESS` if recovery is successful, or an error code if it fails.
    */
+  // 读取磁盘上的 WAL 文件，按约定格式解析每条日志，转换成 WalRecord 存入容器。
   RC recover(const std::string &wal_file, std::vector<WalRecord> &wal_records);
 
   /**
@@ -109,6 +111,7 @@ public:
    * @param val The value associated with the key.
    * @return `RC::SUCCESS` if the write operation is successful, or an error code if it fails.
    */
+  // 把一条 KV 操作序列化后追加到 WAL 文件末尾。
   RC put(uint64_t seq, std::string_view key, std::string_view val);
 
   /**
@@ -117,11 +120,14 @@ public:
    *
    * @return `RC::SUCCESS` if the sync operation is successful, or an error code if it fails.
    */
-  RC sync() { return RC::UNIMPLEMENTED; }
-
+  // 强制刷盘
+  RC sync();
+  // 返回当前绑定的WAL文件路径
   const string &filename() const { return filename_; }
 
 private:
-  string filename_;
+  string                   filename_;     // 当前操作的 WAL 文件路径
+  unique_ptr<ObFileWriter> file_writer_;  // 文件写入器智能指针
+  mutex                    mu_;
 };
 }  // namespace oceanbase

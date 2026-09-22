@@ -63,14 +63,20 @@ RC Db::init(const char *name, const char *dbpath, const char *trx_kit_name, cons
     return RC::INVALID_ARGUMENT;
   }
 
-  oceanbase::ObLsmOptions options;
-  filesystem::path lsm_path = filesystem::path(dbpath) / "lsm";
-  filesystem::create_directory(lsm_path);
+  // 记录存储引擎。后续建表选引擎（get_storage_engine）以及这里的 LSM 打开判断都依赖它。
+  storage_engine_ = storage_engine;
 
-  rc = oceanbase::ObLsm::open(options, lsm_path, &lsm_);
-  if (OB_FAIL(rc)) {
-    LOG_ERROR("failed to open lsm. dbpath=%s, rc=%s", dbpath, strrc(rc));
-    return rc;
+  // LSM 引擎仅在显式选择 lsm 时才初始化，避免默认 heap 引擎也被 LSM 的启动/恢复逻辑拖累。
+  if (get_storage_engine() == StorageEngine::LSM) {
+    oceanbase::ObLsmOptions options;
+    filesystem::path       lsm_path = filesystem::path(dbpath) / "lsm";
+    filesystem::create_directory(lsm_path);
+
+    rc = oceanbase::ObLsm::open(options, lsm_path, &lsm_);
+    if (OB_FAIL(rc)) {
+      LOG_ERROR("failed to open lsm. dbpath=%s, rc=%s", dbpath, strrc(rc));
+      return rc;
+    }
   }
 
   TrxKit *trx_kit = TrxKit::create(trx_kit_name, this);
@@ -80,8 +86,6 @@ RC Db::init(const char *name, const char *dbpath, const char *trx_kit_name, cons
   }
 
   trx_kit_.reset(trx_kit);
-
-  storage_engine_ = storage_engine;
 
   buffer_pool_manager_ = make_unique<BufferPoolManager>();
   auto dblwr_buffer    = make_unique<DiskDoubleWriteBuffer>(*buffer_pool_manager_);

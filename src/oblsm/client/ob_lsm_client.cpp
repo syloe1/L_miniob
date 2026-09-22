@@ -23,10 +23,10 @@ See the Mulan PSL v2 for more details. */
 using namespace oceanbase;
 using common::MiniobLineReader;
 
-const string prompt = "\033[32moblsm> \033[0m";
-bool         quit   = false;
-ObLsm       *lsm    = nullptr;
-ObLsmOptions opt;
+const string prompt = "\033[32moblsm> \033[0m";  // 绿色命令行提示符
+bool         quit   = false;                     // 退出标记，控制主循环
+ObLsm       *lsm    = nullptr;                   // LSM 数据库实例全局指针
+ObLsmOptions opt;                                // LSM 启动配置项
 
 const char *startup_tips = R"(
 Welcome to the OceanBase database implementation course.
@@ -40,19 +40,15 @@ Learn more about MiniOB at https://github.com/oceanbase/miniob
 
 void print_rc(RC rc)
 {
-  // red
-  std::cout << "\033[31m";
+  std::cout << "\033[31m";  // ANSI 转义：字体设为红色
   std::cout << "rc, " << strrc(rc) << std::endl;
-  // default color
-  std::cout << "\033[0m";
+  std::cout << "\033[0m";  // 恢复默认颜色
 }
-
+// 打印绿色系统提示。
 void print_sys_msg(string_view msg)
 {
-  // green
-  std::cout << "\033[32m";
+  std::cout << "\033[32m";  // 绿色字体
   std::cout << msg << std::endl;
-  // default color
   std::cout << "\033[0m";
 }
 
@@ -60,10 +56,11 @@ std::vector<std::pair<string, string>> scan(
     const std::string *strs, const bool *bounds, ObDefaultComparator &comparator)
 {
   std::vector<std::pair<string, string>> res;
-
+  // bounds[0] = true → 左闭区间 [ ，false → 左开；bounds[1] 对应右边界
   if (!bounds[0] && !bounds[1] && comparator.compare(strs[0], strs[1]) > 0) {
     return res;
   }
+  // 创建两个迭代器：遍历游标 + 区间结束游标
   ObLsmReadOptions rd_opt;
   auto             runner = std::unique_ptr<ObLsmIterator>(lsm->new_iterator(rd_opt));
   auto             end    = std::unique_ptr<ObLsmIterator>(lsm->new_iterator(rd_opt));
@@ -98,7 +95,7 @@ std::vector<std::pair<string, string>> scan(
 
   return res;
 }
-
+// 遍历所有命令枚举，打印命令名和使用文档，跳过 help 自己。
 void help()
 {
   for (int i = static_cast<int>(ObLsmCliCmdType::OPEN); i <= static_cast<int>(ObLsmCliCmdType::EXIT); ++i) {

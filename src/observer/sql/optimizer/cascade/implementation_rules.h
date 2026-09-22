@@ -102,6 +102,30 @@ public:
 };
 
 /**
+ * Rule transforms Logical Inner Join -> Physical Nested-Loop Join
+ */
+class LogicalInnerJoinToNestedLoopJoin : public Rule
+{
+public:
+  LogicalInnerJoinToNestedLoopJoin();
+
+  void transform(OperatorNode *input, std::vector<std::unique_ptr<OperatorNode>> *transformed,
+      OptimizerContext *context) const override;
+};
+
+/**
+ * Rule transforms Logical Inner Join -> Physical Hash Join
+ */
+class LogicalInnerJoinToHashJoin : public Rule
+{
+public:
+  LogicalInnerJoinToHashJoin();
+
+  void transform(OperatorNode *input, std::vector<std::unique_ptr<OperatorNode>> *transformed,
+      OptimizerContext *context) const override;
+};
+
+/**
  * Rule transforms Logical Groupby -> Physical Aggregation(Scalar Groupby)
  * TODO: currently group by is competition problem, so we don't implement this rule
  */

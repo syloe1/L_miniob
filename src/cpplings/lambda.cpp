@@ -29,15 +29,17 @@ int main()
   std::vector<int> numbers = {3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5};
 
   // TODO: 定义一个 lambda 表达式来检查数字是否为偶数
-
+  //   []：捕获列表为空，不需要捕获外部变量
+  // (int num)：参数列表，传入待判断数字
+  auto is_even = [](int num) { return num % 2 == 0; };
   // 使用 lambda 表达式来累计所有偶数的和
   int even_sum = 0;
   for (const auto &num : numbers) {
     (void)(num);
     // TODO: 在实现 lambda 表达式后将下面的注释取消注释
-    // if (is_even(num)) {
-    //     even_sum += num;
-    // }
+    if (is_even(num)) {
+      even_sum += num;
+    }
   }
 
   std::cout << "Sum of even numbers: " << even_sum << std::endl;

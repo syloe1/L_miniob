@@ -13,14 +13,14 @@ See the Mulan PSL v2 for more details. */
 #include "gtest/gtest.h"
 
 #include "common/lang/filesystem.h"
-#include "oblsm/wal/ob_lsm_wal.h"
+#include "oblsm/table/wal/ob_lsm_wal.h"
 #include "oblsm/include/ob_lsm.h"
 #include "oblsm/include/ob_lsm_options.h"
 #include "oblsm/ob_lsm_define.h"
 
 using namespace oceanbase;
 
-TEST(wal, DISABLED_basic_test)
+TEST(wal, basic_test)
 {
   filesystem::remove_all("oblsm_tmp");
   filesystem::create_directory("oblsm_tmp");
@@ -53,7 +53,7 @@ TEST(wal, DISABLED_basic_test)
   EXPECT_EQ(p, count);
 }
 
-TEST(oblsm_wal_test, DISABLED_oblsm_recover_with_small_amount_of_data)
+TEST(oblsm_wal_test, oblsm_recover_with_small_amount_of_data)
 {
   filesystem::remove_all("oblsm_tmp");
   filesystem::create_directory("oblsm_tmp");
@@ -87,7 +87,7 @@ TEST(oblsm_wal_test, DISABLED_oblsm_recover_with_small_amount_of_data)
   delete lsm;
 }
 
-TEST(oblsm_wal_test, DISABLED_oblsm_recover_with_single_thread)
+TEST(oblsm_wal_test, oblsm_recover_with_single_thread)
 {
   filesystem::remove_all("oblsm_tmp");
   filesystem::create_directory("oblsm_tmp");
@@ -121,7 +121,7 @@ TEST(oblsm_wal_test, DISABLED_oblsm_recover_with_single_thread)
   delete lsm;
 }
 
-TEST(oblsm_wal_test, DISABLED_oblsm_recover_with_concurrent_put_no_sync)
+TEST(oblsm_wal_test, oblsm_recover_with_concurrent_put_no_sync)
 {
   filesystem::remove_all("oblsm_tmp");
   filesystem::create_directory("oblsm_tmp");
@@ -169,7 +169,7 @@ TEST(oblsm_wal_test, DISABLED_oblsm_recover_with_concurrent_put_no_sync)
   delete lsm;
 }
 
-TEST(oblsm_wal_test, DISABLED_oblsm_recover_with_concurrent_put_sync)
+TEST(oblsm_wal_test, oblsm_recover_with_concurrent_put_sync)
 {
   filesystem::remove_all("oblsm_tmp");
   filesystem::create_directory("oblsm_tmp");

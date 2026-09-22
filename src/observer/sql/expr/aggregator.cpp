@@ -34,3 +34,70 @@ RC SumAggregator::evaluate(Value& result)
   result = value_;
   return RC::SUCCESS;
 }
+
+RC CountAggregator::accumulate(const Value &value)
+{
+  if (value_.attr_type() == AttrType::UNDEFINED) {
+    value_.set_int(1);
+  } else {
+    value_.set_int(value_.get_int() + 1);
+  }
+  return RC::SUCCESS;
+}
+
+RC CountAggregator::evaluate(Value &result)
+{
+  result.set_int(value_.attr_type() == AttrType::UNDEFINED ? 0 : value_.get_int());
+  return RC::SUCCESS;
+}
+
+RC AvgAggregator::accumulate(const Value &value)
+{
+  if (value_.attr_type() == AttrType::UNDEFINED) {
+    value_ = value;
+  } else {
+    Value::add(value, value_, value_);
+  }
+  count_++;
+  return RC::SUCCESS;
+}
+
+RC AvgAggregator::evaluate(Value &result)
+{
+  if (count_ == 0) {
+    result.set_float(0.0f);
+    return RC::SUCCESS;
+  }
+  float avg = value_.attr_type() == AttrType::INTS ? static_cast<float>(value_.get_int()) / count_
+                                                    : value_.get_float() / count_;
+  result.set_float(avg);
+  return RC::SUCCESS;
+}
+
+RC MaxAggregator::accumulate(const Value &value)
+{
+  if (value_.attr_type() == AttrType::UNDEFINED || value.compare(value_) > 0) {
+    value_ = value;
+  }
+  return RC::SUCCESS;
+}
+
+RC MaxAggregator::evaluate(Value &result)
+{
+  result = value_;
+  return RC::SUCCESS;
+}
+
+RC MinAggregator::accumulate(const Value &value)
+{
+  if (value_.attr_type() == AttrType::UNDEFINED || value.compare(value_) < 0) {
+    value_ = value;
+  }
+  return RC::SUCCESS;
+}
+
+RC MinAggregator::evaluate(Value &result)
+{
+  result = value_;
+  return RC::SUCCESS;
+}

@@ -42,6 +42,7 @@ public:
    * @return An RC value indicating success or failure of the operation.
    * @note The caller must delete the returned database pointer (`*dbptr`) when done.
    */
+  // 创建并初始化数据库实例
   static RC open(const ObLsmOptions &options, const string &path, ObLsm **dbptr);
 
   ObLsm() = default;

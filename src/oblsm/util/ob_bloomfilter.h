@@ -114,9 +114,7 @@ private:
 // =============================================================================
 
 inline ObBloomfilter::ObBloomfilter(size_t hash_func_count, size_t total_bits)
-    : hash_func_count_(hash_func_count),
-      total_bits_(total_bits),
-      object_count_(0)
+    : hash_func_count_(hash_func_count), total_bits_(total_bits), object_count_(0)
 {
   // Allocate enough bytes to hold total_bits_ bits (rounded up).
   // If total_bits_ is 0, the vector remains empty.
@@ -127,15 +125,16 @@ inline ObBloomfilter::ObBloomfilter(size_t hash_func_count, size_t total_bits)
 
 inline void ObBloomfilter::insert(const string &object)
 {
+  // 独占锁
   std::unique_lock<std::shared_mutex> lock(mutex_);
 
   if (total_bits_ == 0 || hash_func_count_ == 0) {
     return;
   }
 
-  uint64_t hash_val  = std::hash<string>{}(object);
-  uint32_t hash1     = static_cast<uint32_t>(hash_val & 0xFFFFFFFF);
-  uint32_t hash2     = static_cast<uint32_t>(hash_val >> 32);
+  uint64_t hash_val = std::hash<string>{}(object);
+  uint32_t hash1    = static_cast<uint32_t>(hash_val & 0xFFFFFFFF);
+  uint32_t hash2    = static_cast<uint32_t>(hash_val >> 32);
 
   for (size_t i = 0; i < hash_func_count_; i++) {
     size_t pos = (hash1 + i * hash2) % total_bits_;
@@ -155,6 +154,7 @@ inline void ObBloomfilter::clear()
 
 inline bool ObBloomfilter::contains(const string &object) const
 {
+  // 共享锁
   std::shared_lock<std::shared_mutex> lock(mutex_);
 
   if (total_bits_ == 0 || hash_func_count_ == 0) {

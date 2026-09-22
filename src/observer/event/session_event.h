@@ -30,7 +30,7 @@ class SessionEvent
 public:
   SessionEvent(Communicator *client);
   virtual ~SessionEvent();
-
+  // 获取网络通信器，后续用来向客户端回发数据。
   Communicator *get_communicator() const;
   Session      *session() const;
 

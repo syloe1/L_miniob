@@ -15,7 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include "oblsm/include/ob_lsm.h"
 #include "oblsm/ob_manifest.h"
 #include "oblsm/ob_lsm_define.h"
-#include "oblsm/wal/ob_lsm_wal.h"
+#include "oblsm/table/wal/ob_lsm_wal.h"
 #include "oblsm/table/ob_merger.h"
 #include "oblsm/table/ob_sstable.h"
 #include "oblsm/table/ob_sstable_builder.h"
@@ -76,8 +76,17 @@ RC ObLsmImpl::recover()
     return rc;
   }
 
-  // Recover memtable from WAL file.
-  wal_ = std::make_unique<WAL>();
+  // Recover memtable from the WAL file.
+  rc = recover_from_wal(new_memtable_record);
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to recover from WAL, rc=%s", strrc(rc));
+    return rc;
+  }
+
+  // The latest sequence number is now fully restored (from snapshot/compaction
+  // records and the WAL). Reflect it so future compaction records carry the
+  // correct seq_id.
+  manifest_.latest_seq = seq_.load();
 
   // After recover from the old manifest file, write the snapshot into a new manifest file.
   if (!compaction_records.empty()) {
@@ -89,6 +98,59 @@ RC ObLsmImpl::recover()
   }
 
   return RC::SUCCESS;
+}
+
+RC ObLsmImpl::recover_from_wal(const std::unique_ptr<ObManifestNewMemtable> &new_memtable_record)
+{
+  wal_ = std::make_unique<WAL>();
+
+  if (new_memtable_record) {
+    string wal_path = get_wal_path(new_memtable_record->memtable_id);
+    vector<WalRecord> wal_records;
+    // The WAL file may not exist yet (e.g. a fresh directory, where the manifest
+    // already holds an initial NewMemtable record but no WAL has been written).
+    // In that case there is nothing to replay.
+    if (filesystem::exists(wal_path)) {
+      RC rc = wal_->recover(wal_path, wal_records);
+      if (rc != RC::SUCCESS) {
+        LOG_ERROR("Failed to recover from WAL file %s, rc=%s", wal_path.c_str(), strrc(rc));
+        return rc;
+      }
+
+      // Replay WAL records into the memtable, and advance seq_ past the highest
+      // recovered sequence. Otherwise the version filter in new_user_iterator
+      // (which keeps only entries with seq <= seq_) would drop most recovered
+      // entries, and future puts would reuse stale sequence numbers.
+      uint64_t max_seq = 0;
+      bool     has_records = false;
+      for (auto &rec : wal_records) {
+        mem_table_->put(rec.seq, rec.key, rec.val);
+        if (rec.seq > max_seq) {
+          max_seq = rec.seq;
+        }
+        has_records = true;
+      }
+      if (has_records && max_seq + 1 > seq_.load()) {
+        seq_.store(max_seq + 1);
+      }
+
+      // Re-open the WAL for new writes using the next memtable id, so we don't
+      // append to the WAL we just replayed.
+      uint64_t new_memtable_id = new_memtable_record->memtable_id + 1;
+      memtable_id_.store(new_memtable_id);
+      return wal_->open(get_wal_path(new_memtable_id));
+    } else {
+      // Fresh start: the manifest records the memtable id but no WAL has been
+      // written yet. Reuse that id directly so the first WAL file matches what
+      // the manifest points to (otherwise recovery would look at the wrong file).
+      memtable_id_.store(new_memtable_record->memtable_id);
+      return wal_->open(get_wal_path(new_memtable_record->memtable_id));
+    }
+  }
+
+  // No previous WAL — start fresh.
+  uint64_t new_memtable_id = memtable_id_.fetch_add(1) + 1;
+  return wal_->open(get_wal_path(new_memtable_id));
 }
 
 RC ObLsm::open(const ObLsmOptions &options, const string &path, ObLsm **dbptr)
@@ -148,9 +210,63 @@ RC ObLsmImpl::put(const string_view &key, const string_view &value)
   return rc;
 }
 
-RC ObLsmImpl::batch_put(const vector<pair<string, string>> &kvs) { return RC::UNIMPLEMENTED; }
+RC ObLsmImpl::batch_put(const vector<pair<string, string>> &kvs)
+{
+  if (kvs.empty()) {
+    return RC::SUCCESS;
+  }
 
-RC ObLsmImpl::remove(const string_view &key) { return RC::UNIMPLEMENTED; }
+  unique_lock<mutex> lock(mu_);
+
+  // Phase 1: write all entries to WAL first. If any write fails, return
+  // without touching the memtable, so the batch is atomic (all-or-nothing).
+  struct SeqKV
+  {
+    uint64_t seq;
+    string   key;
+    string   value;
+  };
+  vector<SeqKV> seq_kvs;
+  seq_kvs.reserve(kvs.size());
+  for (auto &kv : kvs) {
+    uint64_t seq = seq_.fetch_add(1);
+    RC       rc  = wal_->put(seq, kv.first, kv.second);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to write WAL during batch_put. rc=%s", strrc(rc));
+      return rc;
+    }
+    seq_kvs.push_back({seq, kv.first, kv.second});
+  }
+
+  if (options_.force_sync_new_log) {
+    RC rc = wal_->sync();
+    if (rc != RC::SUCCESS) {
+      LOG_ERROR("Failed to sync wal logs after batch_put, rc=%s", strrc(rc));
+      return rc;
+    }
+  }
+
+  // Phase 2: WAL fully written, now populate the memtable.
+  for (auto &skv : seq_kvs) {
+    mem_table_->put(skv.seq, skv.key, skv.value);
+  }
+
+  size_t mem_size = mem_table_->appro_memory_usage();
+  if (mem_size > options_.memtable_size) {
+    manifest_.latest_seq = seq_.load();
+    try_freeze_memtable();
+    cv_.notify_one();
+  }
+
+  return RC::SUCCESS;
+}
+
+RC ObLsmImpl::remove(const string_view &key)
+{
+  // Remove is implemented as a put with empty value (tombstone).
+  string empty_value;
+  return put(key, empty_value);
+}
 
 RC ObLsmImpl::try_freeze_memtable()
 {
@@ -258,7 +374,23 @@ void ObLsmImpl::try_major_compaction()
       }
     }
   } else if (options_.type == CompactionType::LEVELED) {
-    // TODO: apply the compaction results to sstable
+    // Leveled compaction 将 level_ 与 level_+1 的输入合并后，把结果放回 level_+1。
+    // 这里重建每一层：去掉参与合并的 sstable，并把结果插入输出层。
+    size_t output_level = picked->level() + 1;
+    for (size_t i = 0; i < levels_size; ++i) {
+      const vector<shared_ptr<ObSSTable>> &level_i = sstables_->at(i);
+      vector<shared_ptr<ObSSTable>>        new_level;
+      new_level.reserve(level_i.size());
+      for (auto &sstable : level_i) {
+        if (!find_sstable(picked_sstables, sstable)) {
+          new_level.emplace_back(sstable);
+        }
+      }
+      if (i == output_level) {
+        new_level.insert(new_level.end(), results.begin(), results.end());
+      }
+      new_sstables->emplace_back(std::move(new_level));
+    }
   }
 
   sstables_ = new_sstables;
@@ -269,13 +401,89 @@ void ObLsmImpl::try_major_compaction()
     sstable->remove();
   }
 
+  // Record the compaction's effect on the manifest so recovery can reconstruct
+  // the correct SSTable set: the picked inputs are deleted, and the new output
+  // tables are added at the output level.
+  mf_record.compaction_type = options_.type;
+  for (const auto &sstable : picked->inputs(0)) {
+    mf_record.deleted_tables.emplace_back(sstable->sst_id(), picked->level());
+  }
+  for (const auto &sstable : picked->inputs(1)) {
+    mf_record.deleted_tables.emplace_back(sstable->sst_id(), picked->level() + 1);
+  }
+  int result_level = (options_.type == CompactionType::LEVELED) ? picked->level() + 1 : 0;
+  for (const auto &sstable : results) {
+    mf_record.added_tables.emplace_back(sstable->sst_id(), result_level);
+  }
+
   mf_record.sstable_sequence_id = sstable_id_.load();
   mf_record.seq_id              = manifest_.latest_seq;
   manifest_.push(std::move(mf_record));
   try_major_compaction();
 }
 
-vector<shared_ptr<ObSSTable>> ObLsmImpl::do_compaction(ObCompaction *picked) { return {}; }
+vector<shared_ptr<ObSSTable>> ObLsmImpl::do_compaction(ObCompaction *picked)
+{
+  vector<shared_ptr<ObSSTable>> results;
+  if (picked == nullptr) {
+    return results;
+  }
+
+  // 为每个输入 SSTable（来自 level_ 与 level_+1 两层）创建迭代器。
+  vector<unique_ptr<ObLsmIterator>> iters;
+  for (int which = 0; which < 2; ++which) {
+    for (const auto &sst : picked->inputs(which)) {
+      iters.emplace_back(sst->new_iterator());
+    }
+  }
+  if (iters.empty()) {
+    return results;
+  }
+
+  // 用内部 key 比较器将多个迭代器合并成一个有序迭代器。
+  unique_ptr<ObLsmIterator> merged(new_merging_iterator(&internal_key_comparator_, std::move(iters)));
+  if (merged == nullptr) {
+    return results;
+  }
+
+  // 用 ObSSTableBuilder 把合并后的 KV 写入新的 SSTable，超过 table_size 则换一个新文件。
+  unique_ptr<ObSSTableBuilder> builder = make_unique<ObSSTableBuilder>(&default_comparator_, block_cache_.get());
+  bool     builder_started = false;
+  uint64_t sst_id          = 0;
+
+  merged->seek_to_first();
+  while (merged->valid()) {
+    if (!builder_started) {
+      sst_id = sstable_id_.fetch_add(1);
+      RC rc  = builder->start_build(sst_id, get_sstable_path(sst_id));
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to start build sstable, rc=%s", strrc(rc));
+        return results;
+      }
+      builder_started = true;
+    }
+
+    RC rc = builder->add(merged->key(), merged->value());
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to add kv into sstable, rc=%s", strrc(rc));
+      return results;
+    }
+    merged->next();
+
+    if (builder->curr_file_size() >= options_.table_size) {
+      builder->finish_build_table();
+      results.emplace_back(builder->get_built_table());
+      builder_started = false;
+    }
+  }
+
+  if (builder_started) {
+    builder->finish_build_table();
+    results.emplace_back(builder->get_built_table());
+  }
+
+  return results;
+}
 
 void ObLsmImpl::build_sstable(shared_ptr<ObMemTable> imem)
 {
@@ -314,9 +522,11 @@ string ObLsmImpl::get_wal_path(uint64_t memtable_id)
 
 RC ObLsmImpl::get(const string_view &key, string *value)
 {
-  RC                 rc = RC::SUCCESS;
-  unique_lock<mutex> lock(mu_);
-  auto               iter = unique_ptr<ObLsmIterator>(new_iterator(ObLsmReadOptions{}));
+  RC rc = RC::SUCCESS;
+  // new_iterator() acquires mu_ itself and returns an iterator over a
+  // consistent snapshot (shared_ptr to memtable/imem/sstables), so holding
+  // mu_ here would self-deadlock on the non-recursive mutex.
+  auto iter = unique_ptr<ObLsmIterator>(new_iterator(ObLsmReadOptions{}));
   iter->seek(key);
   if (iter->valid() && iter->key() == key) {
     if (iter->value().empty()) {
@@ -357,7 +567,14 @@ ObLsmIterator *ObLsmImpl::new_iterator(ObLsmReadOptions options)
       new_merging_iterator(&internal_key_comparator_, std::move(iters)), options.seq == -1 ? seq_.load() : options.seq);
 }
 
-ObLsmTransaction *ObLsmImpl::begin_transaction() { return new ObLsmTransaction(this, seq_.load()); }
+ObLsmTransaction *ObLsmImpl::begin_transaction()
+{
+  // 取当前 seq 作为快照，并预留一个序列号：保证本事务提交时 batch_put/put
+  // 分配的 seq 严格大于快照（快照隔离：提交的写入对旧快照不可见）。
+  uint64_t ts = seq_.load();
+  seq_.fetch_add(1);
+  return new ObLsmTransaction(this, ts);
+}
 
 void ObLsmImpl::dump_sstables()
 {

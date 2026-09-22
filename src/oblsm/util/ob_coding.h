@@ -13,7 +13,8 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/string.h"
 
 namespace oceanbase {
-
+// 负责**内部 key /lookup_key 二进制编解码**
+// LSM 的核心机制：**同一个 user key 多条版本，用 seq 区分新旧**，seq 越大版本越新。
 static const uint8_t SEQ_SIZE               = 8;
 static const uint8_t LOOKUP_KEY_PREFIX_SIZE = 8;
 
@@ -27,6 +28,8 @@ static const uint8_t LOOKUP_KEY_PREFIX_SIZE = 8;
  * @param dst A pointer to the string to which the numeric value will be appended.
  * @param v The numeric value to append.
  */
+// 把数值以原始二进制字节追加到string
+// 直接取变量v的内存地址， 转成char*, 拷贝sizeof(T)个字节追加到dst字符串
 template <typename T>
 void put_numeric(string *dst, T v)
 {
@@ -43,6 +46,7 @@ void put_numeric(string *dst, T v)
  * @param src A pointer to the source binary data from which the numeric value will be read.
  * @return The extracted numeric value of type `T`.
  */
+// 从二进制内存src读取sizeof(T)字节，还原成数值T
 template <typename T>
 T get_numeric(const char *src)
 {
@@ -63,6 +67,15 @@ T get_numeric(const char *src)
  */
 inline string_view extract_user_key(const string_view &internal_key)
 {
+  /*
+┌───────────────┬──────────────┐
+│   user_key    │  seq(8字节)  │
+└───────────────┴──────────────┘
+        ↑               ↑
+   我们想要的        末尾8B序列号
+[ user_key ] [ seq(8B, uint64_t) ]
+
+*/
   return string_view(internal_key.data(), internal_key.size() - SEQ_SIZE);
 }
 
@@ -90,6 +103,14 @@ inline uint64_t extract_sequence(const string_view &internal_key)
  * @param lookup_key The lookup key to analyze.
  * @return The size of the user key portion in bytes.
  */
+/*
+
+┌────────────────────┬────────────┬────────────┐
+│ LOOKUP_PREFIX(8B)  │ user_key   │ seq(8B)    │
+└────────────────────┴────────────┴────────────┘
+LOOKUP_KEY_PREFIX_SIZE=8        SEQ_SIZE=8
+
+*/
 inline size_t user_key_size_from_lookup_key(const string_view &lookup_key)
 {
   return lookup_key.size() - SEQ_SIZE - LOOKUP_KEY_PREFIX_SIZE;
@@ -104,18 +125,27 @@ inline size_t user_key_size_from_lookup_key(const string_view &lookup_key)
  * @param lookup_key The lookup key to extract the user key from.
  * @return A `string_view` representing the user key portion of the lookup key.
  */
+// 从 `lookup_key` 里面直接截取出来**user_key**（用户原始 key），返回一个零拷贝的 `string_view`。
 inline string_view extract_user_key_from_lookup_key(const string_view &lookup_key)
 {
   return string_view(lookup_key.data() + LOOKUP_KEY_PREFIX_SIZE, user_key_size_from_lookup_key(lookup_key));
 }
-
+// 输入 `lookup_key`，**跳过前面 8 字节 prefix，取出后面完整的 internal_key**（`user_key + seq(8B)`）。
 inline string_view extract_internal_key(const string_view &lookup_key)
 {
   return string_view(lookup_key.data() + LOOKUP_KEY_PREFIX_SIZE, lookup_key.size() - LOOKUP_KEY_PREFIX_SIZE);
 }
-
+// 解析**长度前缀字符串（length-prefixed string）**：二进制布局是【长度 +
+// 字符串内容】，读出前面存的长度，跳过长度字段，返回字符串内容的 `string_view`。
 inline string_view get_length_prefixed_string(const char *data)
 {
+  /*
+┌──────────────────┬──────────────────────┐
+│ size_t len(8B)   │ 字符串原始bytes       │
+└──────────────────┴──────────────────────┘
+↑data指针指向这里     ↑p指针指向这里
+
+*/
   size_t      len = get_numeric<size_t>(data);
   const char *p   = data + sizeof(size_t);
   return string_view(p, len);

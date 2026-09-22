@@ -31,14 +31,14 @@ public:
    * @param options Pointer to the LSM-Tree options configuration.
    */
   ObCompactionPicker(ObLsmOptions *options) : options_(options) {}
-
+  // ：保证子类对象通过基类指针销毁时，析构函数能正确执行，防止内存泄漏。
   virtual ~ObCompactionPicker() = default;
 
   /**
    * @brief Pure virtual method to pick a compaction task.
    * @param sstables A pointer to the SSTables available for compaction.
    * @return A unique pointer to the selected compaction task.
-   */
+   *///遍历所有 SSTable，按照当前合并规则，选出需要合并的文件，组装成合并任务。
   virtual unique_ptr<ObCompaction> pick(SSTablesPtr sstables) = 0;
 
   /**
@@ -75,5 +75,13 @@ public:
 
 private:
 };
+class LeveledCompactionPicker : public ObCompactionPicker
+{
+public:
+  LeveledCompactionPicker(ObLsmOptions *options) : ObCompactionPicker(options) {}
+  ~LeveledCompactionPicker() = default;
+  unique_ptr<ObCompaction> pick(SSTablesPtr sstables) override;
 
+private:
+};
 }  // namespace oceanbase

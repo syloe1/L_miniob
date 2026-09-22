@@ -25,6 +25,7 @@ string physical_operator_type_name(PhysicalOperatorType type)
     case PhysicalOperatorType::PREDICATE: return "PREDICATE";
     case PhysicalOperatorType::INSERT: return "INSERT";
     case PhysicalOperatorType::DELETE: return "DELETE";
+    case PhysicalOperatorType::UPDATE: return "UPDATE";
     case PhysicalOperatorType::PROJECT: return "PROJECT";
     case PhysicalOperatorType::STRING_LIST: return "STRING_LIST";
     case PhysicalOperatorType::HASH_GROUP_BY: return "HASH_GROUP_BY";
@@ -34,6 +35,7 @@ string physical_operator_type_name(PhysicalOperatorType type)
     case PhysicalOperatorType::PROJECT_VEC: return "PROJECT_VEC";
     case PhysicalOperatorType::TABLE_SCAN_VEC: return "TABLE_SCAN_VEC";
     case PhysicalOperatorType::EXPR_VEC: return "EXPR_VEC";
+    case PhysicalOperatorType::SORT: return "SORT";
     default: return "UNKNOWN";
   }
 }

@@ -51,6 +51,7 @@ inline char *ObArena::alloc(size_t bytes)
   }
   char *result = new char[bytes];
   blocks_.push_back(result);
+  // 3. 累加内存占用：数据字节 + 指针本身大小
   memory_usage_ += bytes + sizeof(char *);
   return result;
 }

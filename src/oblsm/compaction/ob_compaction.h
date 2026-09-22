@@ -31,6 +31,8 @@ public:
    * @brief Grants access to private members of this class to compaction picker classes.
    * @see ObCompactionPicker, TiredCompactionPicker, LeveledCompactionPicker
    */
+  //  ：授权合并策略选择器访问 ObCompaction 的私有成员 inputs_、level_。
+  // 场景：Picker 选出待合并的 SSTable 后，需要把文件指针填入 inputs_，因此必须开放私有成员访问权限。
   friend class ObCompactionPicker;
   friend class TiredCompactionPicker;
   friend class LeveledCompactionPicker;
@@ -47,6 +49,7 @@ public:
    * @brief Gets the target level for this compaction.
    * @return The integer value representing the level.
    */
+  // 只读接口
   int level() const { return level_; }
 
   /**
@@ -55,6 +58,10 @@ public:
    * @param i Index of the SSTable within the specified level's inputs.
    * @return A shared pointer to the specified SSTable.
    */
+  // 数 which：取值 0 / 1
+  // 0 → 对应基准层 level_ 的文件列表
+  // 1 → 对应下一层 level_ + 1 的文件列表
+  // 参数 i：当前层内 SSTable 的下标
   shared_ptr<ObSSTable> input(int which, int i) const { return inputs_[which][i]; }
 
   /**
@@ -66,6 +73,7 @@ public:
   /**
    * @brief Retrieves the vector of SSTables from the specified input level.
    */
+  // 获取某一层完整文件列表
   const vector<shared_ptr<ObSSTable>> &inputs(int which) const { return inputs_[which]; }
 
 private:

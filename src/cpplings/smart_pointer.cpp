@@ -26,11 +26,13 @@ public:
   Foo()
   {
     // TODO: 添加必要的日志信息，观察函数何时调用。
+    std::cout << "Foo 构造函数执行 " << std::endl;
   }
 
   ~Foo()
   {
     // TODO: 添加必要的日志信息，观察函数何时调用。
+    std::cout << "Foo 析构函数执行" << std::endl;
   }
 
   void display() { std::cout << "Displaying Foo content." << std::endl; }

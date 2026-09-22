@@ -86,12 +86,31 @@ struct ConditionSqlNode
  * 甚至可以包含复杂的表达式。
  */
 
+struct OrderBySqlNode
+{
+  unique_ptr<Expression> expression;  ///< order by 表达式
+  bool                   is_desc;    ///< true for DESC, false for ASC
+};
+
 struct SelectSqlNode
 {
   vector<unique_ptr<Expression>> expressions;  ///< 查询的表达式
   vector<string>                 relations;    ///< 查询的表
   vector<ConditionSqlNode>       conditions;   ///< 查询条件，使用AND串联起来多个条件
   vector<unique_ptr<Expression>> group_by;     ///< group by clause
+  vector<OrderBySqlNode>         order_by;     ///< order by clause
+};
+
+/**
+ * @brief FROM 子句的解析结果
+ * @details 同时记录表名列表和 INNER JOIN 的 ON 条件。
+ * 对于 INNER JOIN，ON 条件与 WHERE 条件语义等价（内连接 = 笛卡尔积 + 过滤），
+ * 因此在这里把 ON 条件收集起来，最终合并进 SelectSqlNode::conditions。
+ */
+struct TableRefSqlNode
+{
+  vector<string>           relations;        ///< FROM 中出现的表名（按出现顺序）
+  vector<ConditionSqlNode> join_conditions;  ///< INNER JOIN 的 ON 条件
 };
 
 /**
@@ -132,7 +151,7 @@ struct UpdateSqlNode
 {
   string                   relation_name;   ///< Relation to update
   string                   attribute_name;  ///< 更新的字段，仅支持一个字段
-  Value                    value;           ///< 更新的值，仅支持一个字段
+  unique_ptr<Expression>   value;           ///< 更新的值表达式，仅支持一个字段
   vector<ConditionSqlNode> conditions;
 };
 

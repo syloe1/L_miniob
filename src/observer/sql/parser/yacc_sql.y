@@ -74,6 +74,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         CALC
         SELECT
         DESC
+        ASC
+        ORDER
         SHOW
         SYNC
         INSERT
@@ -99,6 +101,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         AND
         SET
         ON
+        INNER
+        JOIN
         LOAD
         DATA
         INFILE
@@ -133,7 +137,9 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   vector<ConditionSqlNode> *                 condition_list;
   vector<RelAttrSqlNode> *                   rel_attr_list;
   vector<string> *                           relation_list;
+  TableRefSqlNode *                          table_ref;
   vector<string> *                           key_list;
+  vector<OrderBySqlNode> *                   order_by_list;
   char *                                     cstring;
   int                                        number;
   float                                      floats;
@@ -149,7 +155,9 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %destructor { delete $$; } <condition_list>
 // %destructor { delete $$; } <rel_attr_list>
 %destructor { delete $$; } <relation_list>
+%destructor { delete $$; } <table_ref>
 %destructor { delete $$; } <key_list>
+%destructor { delete $$; } <order_by_list>
 
 %token <number> NUMBER
 %token <floats> FLOAT
@@ -174,10 +182,14 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <key_list>            primary_key
 %type <key_list>            attr_list
 %type <relation_list>       rel_list
+%type <table_ref>           table_ref
 %type <expression>          expression
 %type <expression>          aggregate_expression
 %type <expression_list>     expression_list
 %type <expression_list>     group_by
+%type <order_by_list>       opt_order_by
+%type <order_by_list>       order_by_list
+%type <order_by_list>       order_by_item
 %type <cstring>             fields_terminated_by
 %type <cstring>             enclosed_by
 %type <sql_node>            calc_stmt
@@ -470,12 +482,12 @@ delete_stmt:    /*  delete 语句的语法解析树*/
     }
     ;
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ value where 
+    UPDATE ID SET ID EQ expression where
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
       $$->update.relation_name = $2;
       $$->update.attribute_name = $4;
-      $$->update.value = *$6;
+      $$->update.value.reset($6);
       if ($7 != nullptr) {
         $$->update.conditions.swap(*$7);
         delete $7;
@@ -483,7 +495,7 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM rel_list where group_by
+    SELECT expression_list FROM table_ref where group_by opt_order_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -492,18 +504,30 @@ select_stmt:        /*  select 语句的语法解析树*/
       }
 
       if ($4 != nullptr) {
-        $$->selection.relations.swap(*$4);
+        $$->selection.relations.swap($4->relations);
+        // INNER JOIN 的 ON 条件与 WHERE 条件语义等价（内连接 = 笛卡尔积 + 过滤），
+        // 因此把 ON 条件合并到 conditions 中，交由后面的逻辑计划生成器统一抽取等值连接条件。
+        for (auto &cond : $4->join_conditions) {
+          $$->selection.conditions.push_back(cond);
+        }
         delete $4;
       }
 
       if ($5 != nullptr) {
-        $$->selection.conditions.swap(*$5);
+        for (auto &cond : *$5) {
+          $$->selection.conditions.push_back(cond);
+        }
         delete $5;
       }
 
       if ($6 != nullptr) {
         $$->selection.group_by.swap(*$6);
         delete $6;
+      }
+
+      if ($7 != nullptr) {
+        $$->selection.order_by.swap(*$7);
+        delete $7;
       }
     }
     ;
@@ -610,6 +634,24 @@ rel_list:
     }
     ;
 
+table_ref:
+    rel_list {
+      $$ = new TableRefSqlNode();
+      $$->relations.swap(*$1);
+      delete $1;
+    }
+    | table_ref INNER JOIN relation ON condition_list {
+      $$ = $1;
+      $$->relations.push_back($4);
+      if ($6 != nullptr) {
+        for (auto &cond : *$6) {
+          $$->join_conditions.push_back(cond);
+        }
+        delete $6;
+      }
+    }
+    ;
+
 where:
     /* empty */
     {
@@ -708,6 +750,53 @@ group_by:
       $$ = $3;
     }
     ;
+
+opt_order_by:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | ORDER BY order_by_list
+    {
+      $$ = $3;
+    }
+    ;
+
+order_by_list:
+    order_by_item
+    {
+      $$ = $1;
+    }
+    | order_by_item COMMA order_by_list
+    {
+      if ($3 != nullptr) {
+        $$ = $3;
+        $$->insert($$->begin(), std::make_move_iterator($1->begin()), std::make_move_iterator($1->end()));
+        delete $1;
+      } else {
+        $$ = $1;
+      }
+    }
+    ;
+
+order_by_item:
+    expression
+    {
+      $$ = new vector<OrderBySqlNode>;
+      $$->emplace_back(OrderBySqlNode{unique_ptr<Expression>($1), false});
+    }
+    | expression ASC
+    {
+      $$ = new vector<OrderBySqlNode>;
+      $$->emplace_back(OrderBySqlNode{unique_ptr<Expression>($1), false});
+    }
+    | expression DESC
+    {
+      $$ = new vector<OrderBySqlNode>;
+      $$->emplace_back(OrderBySqlNode{unique_ptr<Expression>($1), true});
+    }
+    ;
+
 load_data_stmt:
     LOAD DATA INFILE SSS INTO TABLE ID fields_terminated_by enclosed_by
     {

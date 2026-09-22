@@ -18,6 +18,7 @@ See the Mulan PSL v2 for more details. */
 #include <thread>    // std::thread
 #include <vector>    // std::vector
 #include <cassert>   // assert
+#include <atomic>    // std::atomic
 
 // 一个简单的链表节点
 struct Node
@@ -26,15 +27,21 @@ struct Node
   Node *next;
 };
 
-Node *list_head(nullptr);
+std::atomic<Node *> list_head(nullptr);
 
 // 向 `list_head` 中添加一个值为 `val` 的 Node 节点。
 void append_node(int val)
 {
-  Node *old_head = list_head;
-  Node *new_node = new Node{val, old_head};
+  Node *old_head;
+  Node *new_node;
   // TODO: 使用 compare_exchange_strong 来使这段代码线程安全。
-  list_head = new_node;
+  do {
+    old_head = list_head.load();
+    new_node = new Node{val, old_head};
+  } while (!list_head.compare_exchange_strong(old_head, new_node));
+  //**原子执行：判断 `list_head` 是不是等于 `old_head`。**
+  //- ✅ 如果相等：把 `list_head` 改成 `new_node`，返回 `true`（插入成功）
+  //- ❌ 如果不相等：**把 list_head 当前最新值覆盖写到 old_head 变量里**，返回 `false`（插入失败，需要重试）
 }
 
 int main()

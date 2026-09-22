@@ -65,6 +65,9 @@ RC LsmMvccTrx::commit()
 
 RC LsmMvccTrx::rollback()
 {
+  if (trx_ == nullptr) {
+    return RC::SUCCESS;
+  }
   return trx_->rollback();
 }
 

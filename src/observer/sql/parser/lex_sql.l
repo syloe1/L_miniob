@@ -86,6 +86,10 @@ QUOTE            [\'\"]
 EXIT                                    RETURN_TOKEN(EXIT);
 HELP                                    RETURN_TOKEN(HELP);
 DESC                                    RETURN_TOKEN(DESC);
+ASC                                     RETURN_TOKEN(ASC);
+ORDER                                   RETURN_TOKEN(ORDER);
+INNER                                   RETURN_TOKEN(INNER);
+JOIN                                    RETURN_TOKEN(JOIN);
 CREATE                                  RETURN_TOKEN(CREATE);
 DROP                                    RETURN_TOKEN(DROP);
 TABLE                                   RETURN_TOKEN(TABLE);

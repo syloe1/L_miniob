@@ -68,13 +68,17 @@ public:
   bool contains(const string &object) const;
 
   /**
-   * @brief Returns the count of objects inserted into the Bloom filter.
+   * @brief Returns the number of insert() calls made since construction or the last clear().
+   *
+   * @note Duplicate insertions are counted every time. This is not the number of *distinct*
+   *       objects: deciding whether an object was inserted before is exactly the question a
+   *       Bloom filter only answers probabilistically, so it cannot be tracked here.
    */
   size_t object_count() const;
 
   /**
-   * @brief Checks if the Bloom filter is empty.
-   * @return true if the filter is empty, false otherwise.
+   * @brief Checks if nothing has been inserted since construction or the last clear().
+   * @return true if no insert() has taken effect, false otherwise.
    */
   bool empty() const { return 0 == object_count(); }
 
@@ -98,11 +102,13 @@ private:
   /// Total number of bits in the filter.
   size_t total_bits_;
 
-  /// Number of objects currently inserted in the filter.
+  /// Number of insert() calls since construction or the last clear(); duplicates counted.
   size_t object_count_;
 
   /// Bit array backing the filter. Each byte stores 8 bits.
-  std::vector<char> bits_;
+  /// Unsigned so that masking a single bit out of a byte is well-defined: promoting a
+  /// signed char through the integer promotions is what made this fragile before.
+  std::vector<unsigned char> bits_;
 
   /// Mutex for concurrent access. Shared for reads (contains), exclusive for
   /// writes (insert, clear).
@@ -138,7 +144,7 @@ inline void ObBloomfilter::insert(const string &object)
 
   for (size_t i = 0; i < hash_func_count_; i++) {
     size_t pos = (hash1 + i * hash2) % total_bits_;
-    bits_[pos / 8] |= static_cast<char>(1 << (pos % 8));
+    bits_[pos / 8] |= static_cast<unsigned char>(1u << (pos % 8));
   }
 
   object_count_++;
@@ -167,7 +173,7 @@ inline bool ObBloomfilter::contains(const string &object) const
 
   for (size_t i = 0; i < hash_func_count_; i++) {
     size_t pos = (hash1 + i * hash2) % total_bits_;
-    if (!(bits_[pos / 8] & (1 << (pos % 8)))) {
+    if (!(bits_[pos / 8] & (1u << (pos % 8)))) {
       return false;
     }
   }

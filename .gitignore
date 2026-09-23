@@ -36,9 +36,17 @@ testdb/
 miniob/
 data/miniob/db/
 
-# scratch notes
+# scratch notes (personal, must not be published — repo is public)
 thinking.md
 task.md
+面试.md
+# 源码阅读笔记：按目录散落在 src/ 下。无斜杠的写法会匹配任意层级的同名文件，
+# 所以也会盖住 src/oblsm/test.md / src/oblsm/table/wal/intro.MD 这些。
+test.md
+intro.MD
+# src/common 的带中文注释精读副本（2026-06 留的，比 src/common 旧）。
+# 是个人笔记不是构建产物，绝不能被 git add -A 扫进公开仓库。
+src/memtracer/common/
 
 # compiled cpplings binaries
 src/cpplings/cas

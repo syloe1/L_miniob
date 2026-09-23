@@ -42,7 +42,7 @@ select * from join_table_1, join_table_2 where join_table_1.id = join_table_2.id
 -- ensure:hashjoin*2 select * from join_table_1, join_table_2, join_table_3 where join_table_1.id = join_table_2.id and join_table_2.id=join_table_3.id and join_table_2.id=1;
 select * from join_table_1, join_table_2, join_table_3 where join_table_1.id = join_table_2.id and join_table_2.id=join_table_3.id and join_table_2.id=1;
 
--- ensure:hashjoin select * from join_table_1, join_table_2, join_table_3 where join_table_1.id = join_table_2.id join_table_2.id>join_table_3.id and join_table_2.id=1;
+-- ensure:hashjoin select * from join_table_1, join_table_2, join_table_3 where join_table_1.id = join_table_2.id and join_table_2.id>join_table_3.id and join_table_2.id=1;
 -- ensure:nlj select * from join_table_1, join_table_2, join_table_3 where join_table_1.id = join_table_2.id and join_table_2.id>join_table_3.id and join_table_2.id=1;
 select * from join_table_1, join_table_2, join_table_3 where join_table_1.id = join_table_2.id and join_table_2.id>join_table_3.id and join_table_2.id=1;
 

@@ -40,9 +40,19 @@ private:
 };
 
 /**
+ * @brief 当前会话是否开启了 sql_debug
+ * @details 逐行调用 sql_debug 的算子（比如 TableScan）要用它来决定是否值得构造参数。
+ * sql_debug 的参数在调用前就会被求值，所以不先判断一下的话，
+ * 关掉调试信息的会话也要为每一行付出构造字符串的代价。
+ */
+bool sql_debug_enabled();
+
+/**
  * @brief 增加SQL的调试信息
  * @details 可以在任何执行SQL语句时调用这个函数来增加调试信息。
  * 如果当前上下文不在SQL执行过程中，那么不会生成调试信息。
  * 在普通文本场景下，调试信息会直接输出到客户端，并增加 '#' 作为前缀。
+ * 注意：本函数只在 sql_debug_enabled() 为真时才会真正记录，否则直接返回；
+ *       但 fmt 的参数仍然已经求值了，热路径上请自行先用 sql_debug_enabled() 兜一层。
  */
 void sql_debug(const char *fmt, ...);

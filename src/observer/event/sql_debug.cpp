@@ -25,10 +25,16 @@ void SqlDebug::clear_debug_info() { debug_infos_.clear(); }
 
 const list<string> &SqlDebug::get_debug_infos() const { return debug_infos_; }
 
+bool sql_debug_enabled()
+{
+  Session *session = Session::current_session();
+  return session != nullptr && session->sql_debug_on();
+}
+
 void sql_debug(const char *fmt, ...)
 {
   Session *session = Session::current_session();
-  if (nullptr == session) {
+  if (nullptr == session || !session->sql_debug_on()) {
     return;
   }
 

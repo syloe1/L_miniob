@@ -43,10 +43,14 @@ RC TableScanPhysicalOperator::next()
       return rc;
     }
 
+    // sql_debug 的参数在调用前就会求值，所以关掉调试信息时也要避免构造 tuple 字符串
+    const bool debug_on = sql_debug_enabled();
     if (filter_result) {
-      sql_debug("get a tuple: %s", tuple_.to_string().c_str());
+      if (debug_on) {
+        sql_debug("get a tuple: %s", tuple_.to_string().c_str());
+      }
       break;
-    } else {
+    } else if (debug_on) {
       sql_debug("a tuple is filtered: %s", tuple_.to_string().c_str());
     }
   }

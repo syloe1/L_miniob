@@ -26,6 +26,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/project_logical_operator.h"
 #include "sql/operator/table_get_logical_operator.h"
 #include "sql/operator/group_by_logical_operator.h"
+#include "sql/operator/limit_logical_operator.h"
 #include "sql/operator/orderby_logical_operator.h"
 #include "sql/operator/update_logical_operator.h"
 
@@ -240,7 +241,7 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
 
   last_oper = &project_oper;
 
-  // Add ORDER BY operator if specified.
+  unique_ptr<LogicalOperator> orderby_oper;
   if (!select_stmt->order_by().empty()) {
     vector<unique_ptr<Expression>> order_by_exprs;
     for (auto &expr : select_stmt->order_by()) {
@@ -248,14 +249,21 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
       copy->set_name(expr->name());
       order_by_exprs.emplace_back(std::move(copy));
     }
-    unique_ptr<LogicalOperator> orderby_oper =
-        make_unique<OrderByLogicalOperator>(std::move(order_by_exprs), select_stmt->order_by_desc());
+    orderby_oper = make_unique<OrderByLogicalOperator>(std::move(order_by_exprs), select_stmt->order_by_desc());
     if (*last_oper) {
       orderby_oper->add_child(std::move(*last_oper));
     }
     last_oper = &orderby_oper;
-    logical_operator = std::move(orderby_oper);
-    return RC::SUCCESS;
+  }
+
+  // LIMIT 在 ORDER BY 之后生效：先排序，再截断。
+  unique_ptr<LogicalOperator> limit_oper;
+  if (select_stmt->limit() >= 0) {
+    limit_oper = make_unique<LimitLogicalOperator>(select_stmt->limit());
+    if (*last_oper) {
+      limit_oper->add_child(std::move(*last_oper));
+    }
+    last_oper = &limit_oper;
   }
 
   logical_operator = std::move(*last_oper);

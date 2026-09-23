@@ -29,9 +29,14 @@ bool LogicalOperator::can_generate_vectorized_operator(const LogicalOperatorType
   case LogicalOperatorType::DELETE:
   case LogicalOperatorType::INSERT:
   case LogicalOperatorType::UPDATE:
+  // SORT / LIMIT 目前只有行式实现，没有对应的向量化算子。
+  // 这里返回 false 让整棵计划回退到行式执行，否则 create_vec() 会因为
+  // 不认识这两种算子而返回 INVALID_ARGUMENT，整个查询直接失败。
+  case LogicalOperatorType::ORDER_BY:
+  case LogicalOperatorType::LIMIT:
     bool_ret = false;
     break;
-  
+
   default:
     bool_ret = true;
     break;

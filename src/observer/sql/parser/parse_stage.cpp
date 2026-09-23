@@ -46,14 +46,22 @@ RC ParseStage::handle_request(SQLStageEvent *sql_event)
     LOG_WARN("got multi sql commands but only 1 will be handled");
   }
 
-  unique_ptr<ParsedSqlNode> sql_node = std::move(parsed_sql_result.sql_nodes().front());
-  if (sql_node->flag == SCF_ERROR) {
-    // set error information to event
-    rc = RC::SQL_SYNTAX;
-    sql_result->set_return_code(rc);
-    sql_result->set_state_string("Failed to parse sql");
-    return rc;
+  // 只看 front() 是不够的：bison 在语法的默认归约上会先把能解析的前缀规约出来
+  // （比如 `select ... from t limit 1` 会先产出一个 SELECT 节点），
+  // 遇到无法识别的尾随子句再调用 yyerror 追加一个 SCF_ERROR 节点。
+  // 只检查 front() 就会把尾随的错误节点丢掉，于是 LIMIT 之类的子句被静默忽略。
+  // 因此这里扫描所有节点，只要有一个是 SCF_ERROR 就整体报语法错误。
+  for (const unique_ptr<ParsedSqlNode> &node : parsed_sql_result.sql_nodes()) {
+    if (node->flag == SCF_ERROR) {
+      // set error information to event
+      rc = RC::SQL_SYNTAX;
+      sql_result->set_return_code(rc);
+      sql_result->set_state_string("Failed to parse sql");
+      return rc;
+    }
   }
+
+  unique_ptr<ParsedSqlNode> sql_node = std::move(parsed_sql_result.sql_nodes().front());
 
   sql_event->set_sql_node(std::move(sql_node));
 

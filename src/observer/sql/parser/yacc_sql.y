@@ -121,6 +121,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         LE
         GE
         NE
+        LIMIT
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -193,6 +194,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <order_by_list>       opt_order_by
 %type <order_by_list>       order_by_list
 %type <order_by_list>       order_by_item
+%type <number>              opt_limit
 %type <update_set_list>     update_set_list
 %type <cstring>             fields_terminated_by
 %type <cstring>             enclosed_by
@@ -536,7 +538,7 @@ update_set_list:
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM table_ref where group_by opt_order_by
+    SELECT expression_list FROM table_ref where group_by opt_order_by opt_limit
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -570,6 +572,8 @@ select_stmt:        /*  select 语句的语法解析树*/
         $$->selection.order_by.swap(*$7);
         delete $7;
       }
+
+      $$->selection.limit = $8;
     }
     ;
 calc_stmt:
@@ -835,6 +839,18 @@ order_by_item:
     {
       $$ = new vector<OrderBySqlNode>;
       $$->emplace_back(OrderBySqlNode{unique_ptr<Expression>($1), true});
+    }
+    ;
+
+/* LIMIT 只接受一个非负整数。缺省为 -1，表示不限制；LIMIT 0 表示返回空结果集。 */
+opt_limit:
+    /* empty */
+    {
+      $$ = -1;
+    }
+    | LIMIT NUMBER
+    {
+      $$ = $2;
     }
     ;
 

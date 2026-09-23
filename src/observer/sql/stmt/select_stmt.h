@@ -47,6 +47,9 @@ public:
   vector<unique_ptr<Expression>> &order_by() { return order_by_; }
   const vector<bool>             &order_by_desc() const { return order_by_desc_; }
 
+  /// LIMIT 的行数上限；负数表示没有 LIMIT 子句。
+  int limit() const { return limit_; }
+
 private:
   vector<unique_ptr<Expression>> query_expressions_;
   vector<Table *>                tables_;
@@ -54,4 +57,5 @@ private:
   vector<unique_ptr<Expression>> group_by_;
   vector<unique_ptr<Expression>> order_by_;
   vector<bool>                   order_by_desc_;
+  int                            limit_ = -1;
 };

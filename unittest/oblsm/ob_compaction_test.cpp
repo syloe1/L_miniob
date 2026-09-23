@@ -70,6 +70,20 @@ bool check_compaction(ObLsm* lsm)
   return true;
 }
 
+// 轮询等后台 compaction 收敛。后台合并是异步的，原来固定 sleep(1) 是猜时间：
+// 1 秒未必够，于是测试可能报"不变量失败"而实际只是没等够，反而掩盖真问题。
+// 等到不变量成立为止（或超时），这样失败就一定意味着真的不成立。
+bool wait_for_compaction(ObLsm *lsm, int timeout_sec)
+{
+  for (int waited = 0; waited < timeout_sec; ++waited) {
+    if (check_compaction(lsm)) {
+      return true;
+    }
+    sleep(1);
+  }
+  return check_compaction(lsm);
+}
+
 TEST_P(ObLsmCompactionTest, DISABLED_oblsm_compaction_test_basic1)
 {
   size_t num_entries = GetParam();
@@ -78,7 +92,6 @@ TEST_P(ObLsmCompactionTest, DISABLED_oblsm_compaction_test_basic1)
   for (const auto& [key, value] : data) {
     ASSERT_EQ(db->put(key, value), RC::SUCCESS);
   }
-  sleep(1);
 
   ObLsmIterator* it = db->new_iterator(ObLsmReadOptions());
   it->seek_to_first();
@@ -89,7 +102,7 @@ TEST_P(ObLsmCompactionTest, DISABLED_oblsm_compaction_test_basic1)
   }
   EXPECT_EQ(count, num_entries);
   delete it;
-  ASSERT_TRUE(check_compaction(db));
+  ASSERT_TRUE(wait_for_compaction(db, 30)) << "compaction invariants still violated after 30s";
 }
 
 void thread_put(ObLsm *db, int start, int end) {
@@ -120,8 +133,6 @@ TEST_P(ObLsmCompactionTest, DISABLED_ConcurrentPutAndGetTest) {
   for (auto &thread : threads) {
     thread.join();
   }
-  // wait for compaction
-  sleep(1);
 
   // Verify all data using iterator
   ObLsmReadOptions options;
@@ -139,7 +150,7 @@ TEST_P(ObLsmCompactionTest, DISABLED_ConcurrentPutAndGetTest) {
   // Clean up
   delete iterator;
 
-  ASSERT_TRUE(check_compaction(db));
+  ASSERT_TRUE(wait_for_compaction(db, 30)) << "compaction invariants still violated after 30s";
 }
 
 INSTANTIATE_TEST_SUITE_P(

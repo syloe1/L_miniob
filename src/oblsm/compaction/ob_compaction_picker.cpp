@@ -10,6 +10,7 @@ See the Mulan PSL v2 for more details. */
 
 #include "oblsm/compaction/ob_compaction_picker.h"
 #include "common/log/log.h"
+#include "oblsm/util/ob_coding.h"
 
 namespace oceanbase {
 
@@ -74,6 +75,26 @@ unique_ptr<ObCompaction> LeveledCompactionPicker::pick(SSTablesPtr sstables)
 
   unique_ptr<ObCompaction> compaction(new ObCompaction(picked_level));
 
+  // 层内 key 的比较必须走 ObInternalKeyComparator，不能用 std::string 的 </<=/>= 。
+  // internal key 是 `user_key || seq(8B)`，裸字节比较会把 seq 也一起比进去。例如
+  // key1(seq=1000000) 与 key10(seq=1000000)：comparator 判 key1 < key10（user key 前缀），
+  // 裸字符串却判 key1 > key10（第 5 字节 seq 低字节 0x40 > '0'）。判错重叠就会漏掉本该参与
+  // 合并的下一层文件，那些文件留在原层，与新写出的文件区间重叠 —— 同层 key 重叠不变量被破坏。
+  // do_compaction 的归并迭代器和测试里的 check_compaction 用的都是这个 comparator。
+  ObInternalKeyComparator cmp;
+  // 退化保护：没有 block 的 sstable，其 first_key()/last_key() 是空串，
+  // 而 ObInternalKeyComparator 会对不足 SEQ_SIZE 的 key 做 size() - SEQ_SIZE 下溢。
+  auto safe_cmp = [&cmp](const string &a, const string &b) -> int {
+    if (a.size() < SEQ_SIZE || b.size() < SEQ_SIZE) {
+      return a.compare(b);
+    }
+    return cmp.compare(a, b);
+  };
+  // 闭区间 [first, last] 与 [start, end] 是否相交
+  auto ranges_overlap = [&safe_cmp](const string &first, const string &last, const string &start, const string &end) {
+    return safe_cmp(last, start) >= 0 && safe_cmp(first, end) <= 0;
+  };
+
   if (picked_level == 0) {
     // L0 全部参与
     for (auto &sst : (*sstables)[0]) {
@@ -84,15 +105,17 @@ unique_ptr<ObCompaction> LeveledCompactionPicker::pick(SSTablesPtr sstables)
       // 获取 L0 整体的 key 范围（最小起始 key 和最大结束 key）
       string smallest, largest;
       for (auto &sst : compaction->inputs_[0]) {
-        if (smallest.empty() || sst->first_key() < smallest)
+        if (smallest.empty() || safe_cmp(sst->first_key(), smallest) < 0)
           smallest = sst->first_key();
-        if (largest.empty() || sst->last_key() > largest)
+        if (largest.empty() || safe_cmp(largest, sst->last_key()) < 0)
           largest = sst->last_key();
       }
       // 遍历 L1，若与 [smallest, largest] 有交集则加入
-      for (auto &sst : (*sstables)[1]) {
-        if (sst->last_key() >= smallest && sst->first_key() <= largest) {
-          compaction->inputs_[1].emplace_back(sst);
+      if (!smallest.empty() || !largest.empty()) {
+        for (auto &sst : (*sstables)[1]) {
+          if (ranges_overlap(sst->first_key(), sst->last_key(), smallest, largest)) {
+            compaction->inputs_[1].emplace_back(sst);
+          }
         }
       }
     }
@@ -110,7 +133,7 @@ unique_ptr<ObCompaction> LeveledCompactionPicker::pick(SSTablesPtr sstables)
       string start = picked_file->first_key();
       string end   = picked_file->last_key();
       for (auto &sst : (*sstables)[next_level]) {
-        if (sst->last_key() >= start && sst->first_key() <= end) {
+        if (ranges_overlap(sst->first_key(), sst->last_key(), start, end)) {
           compaction->inputs_[1].emplace_back(sst);
         }
       }

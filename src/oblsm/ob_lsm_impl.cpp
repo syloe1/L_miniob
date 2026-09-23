@@ -337,6 +337,12 @@ void ObLsmImpl::try_major_compaction()
     return;
   }
   vector<shared_ptr<ObSSTable>> results = do_compaction(picked.get());
+  if (results.empty()) {
+    // do_compaction 失败时会丢弃部分结果并返回空。此时绝不能替换 sstables_
+    // 或删除输入文件：输入的数据既不在新层级里、文件也没了，就是永久丢失。
+    LOG_WARN("compaction produced no output; keeping input sstables untouched");
+    return;
+  }
 
   SSTablesPtr new_sstables = make_shared<vector<vector<shared_ptr<ObSSTable>>>>();
   lock.lock();
@@ -451,6 +457,16 @@ vector<shared_ptr<ObSSTable>> ObLsmImpl::do_compaction(ObCompaction *picked)
   bool     builder_started = false;
   uint64_t sst_id          = 0;
 
+  // 失败时丢弃已经写出的部分结果（连文件一起删掉）并返回空。
+  // 约定：返回空表示本次合并失败，调用方必须放弃合并、保留输入 SSTable，
+  // 否则输入被删而结果为空会造成数据丢失。
+  auto discard_partial_output = [&results]() {
+    for (auto &sstable : results) {
+      sstable->remove();
+    }
+    results.clear();
+  };
+
   merged->seek_to_first();
   while (merged->valid()) {
     if (!builder_started) {
@@ -458,6 +474,7 @@ vector<shared_ptr<ObSSTable>> ObLsmImpl::do_compaction(ObCompaction *picked)
       RC rc  = builder->start_build(sst_id, get_sstable_path(sst_id));
       if (rc != RC::SUCCESS) {
         LOG_WARN("failed to start build sstable, rc=%s", strrc(rc));
+        discard_partial_output();
         return results;
       }
       builder_started = true;
@@ -466,6 +483,7 @@ vector<shared_ptr<ObSSTable>> ObLsmImpl::do_compaction(ObCompaction *picked)
     RC rc = builder->add(merged->key(), merged->value());
     if (rc != RC::SUCCESS) {
       LOG_WARN("failed to add kv into sstable, rc=%s", strrc(rc));
+      discard_partial_output();
       return results;
     }
     merged->next();

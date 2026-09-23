@@ -122,28 +122,47 @@ RC LsmTableEngine::open()
       lsm_->new_iterator(ObLsmReadOptions()));
   lsm_iter->seek(string_view((char *)prefix.data(), prefix.size()));
 
-  uint64_t max_inc_id = 0;
+  uint64_t max_rid = 0;
+  bool     found   = false;
   while (lsm_iter->valid()) {
-    string_view key = lsm_iter->key();
-    // The key format is: table_prefix | table_id | rowkey_prefix | inc_id
-    // We need to skip past table_prefix, table_id, and rowkey_prefix
-    // to get to the inc_id.
-    //
-    // For simplicity, we just try to find the max inc_id by scanning
-    // and counting.  Since inc_id is auto-incremented, the number of
-    // records for this table equals the highest inc_id.
-    int64_t tid = 0;
-    bytes   key_bytes(key.data(), key.data() + key.size());
-    Codec::decode(key_bytes, tid);
-    if (tid == table_->table_id()) {
-      max_inc_id++;
-    } else {
+    string_view  key = lsm_iter->key();
+    bytes        key_bytes(key.data(), key.data() + key.size());
+    span<byte_t> sp(key_bytes);
+
+    string   table_prefix;
+    int64_t  table_id = 0;
+    string   rowkey_prefix;
+    uint64_t rid = 0;
+    RC       rc  = OrderedCode::parse(sp, OrderedCode::increasing, table_prefix);
+    if (OB_SUCC(rc)) {
+      rc = OrderedCode::parse(sp, OrderedCode::increasing, table_id);
+    }
+    if (OB_SUCC(rc)) {
+      rc = OrderedCode::parse(sp, OrderedCode::increasing, rowkey_prefix);
+    }
+    if (OB_SUCC(rc)) {
+      rc = OrderedCode::parse(sp, OrderedCode::increasing, rid);
+    }
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to decode lsm key for table %s, rc=%s", table_->name(), strrc(rc));
+      break;
+    }
+    if (table_id != table_->table_id()) {
       break;  // No more records for this table.
+    }
+
+    if (!found || rid > max_rid) {
+      max_rid = rid;
+      found   = true;
     }
     lsm_iter->next();
   }
 
-  inc_id_.store(max_inc_id);
-  LOG_TRACE("Recovered inc_id_=%lu for table %s", max_inc_id, table_->name());
+  // inc_id_ is the *next* id to hand out (insert_record uses fetch_add), so it
+  // is one past the largest rid we found. Counting records instead would
+  // under-count once rows are deleted, because the iterator hides tombstones,
+  // and a too-small inc_id_ would hand out rid values that are still in use.
+  inc_id_.store(found ? max_rid + 1 : 0);
+  LOG_TRACE("Recovered inc_id_=%lu for table %s", inc_id_.load(), table_->name());
   return RC::SUCCESS;
 }

@@ -37,8 +37,28 @@ public:
     }
   }
 
-  // TODO: implement seek_to_last
-  void seek_to_last() override { valid_ = false; }
+  // The underlying iterators only move forward (there is no prev()), so the last
+  // visible entry cannot be reached by walking backwards from the tail: scan to the
+  // end to remember it, then seek back to that user key. O(n), which is fine for the
+  // only caller (a range scan) but not for frequent use.
+  void seek_to_last() override
+  {
+    seek_to_first();
+    if (!valid_) {
+      return;
+    }
+
+    string last_key(key().data(), key().size());
+    while (true) {
+      next();
+      if (!valid_) {
+        break;
+      }
+      last_key.assign(key().data(), key().size());
+    }
+
+    seek(last_key);
+  }
 
   void seek(const string_view &target) override
   {

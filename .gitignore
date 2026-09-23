@@ -48,6 +48,11 @@ intro.MD
 # 是个人笔记不是构建产物，绝不能被 git add -A 扫进公开仓库。
 src/memtracer/common/
 
+# build-time installers and editor temp files: were committed by accident
+# (the two .deb by the lab0 commit, the .swp came in with an upstream commit)
+*.deb
+*.swp
+
 # compiled cpplings binaries
 src/cpplings/cas
 src/cpplings/cv

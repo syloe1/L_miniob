@@ -23,19 +23,28 @@ class FieldMeta;
 class FilterStmt;
 
 /**
+ * @brief 单个 SET 赋值：目标字段 + 值表达式
+ * @ingroup Statement
+ */
+struct UpdateAssignment
+{
+  const FieldMeta       *field = nullptr;  ///< 目标字段
+  unique_ptr<Expression> value_expr;       ///< 值表达式
+};
+
+/**
  * @brief 更新语句
  * @ingroup Statement
  */
 class UpdateStmt : public Stmt
 {
 public:
-  UpdateStmt(Table *table, const FieldMeta *field, unique_ptr<Expression> value_expr, FilterStmt *filter_stmt);
+  UpdateStmt(Table *table, vector<UpdateAssignment> assignments, FilterStmt *filter_stmt);
   ~UpdateStmt() override;
 
-  Table               *table() const { return table_; }
-  const FieldMeta     *field() const { return field_; }
-  unique_ptr<Expression> &value_expr() { return value_expr_; }
-  FilterStmt          *filter_stmt() const { return filter_stmt_; }
+  Table                    *table() const { return table_; }
+  vector<UpdateAssignment> &assignments() { return assignments_; }
+  FilterStmt               *filter_stmt() const { return filter_stmt_; }
 
   StmtType type() const override { return StmtType::UPDATE; }
 
@@ -43,8 +52,7 @@ public:
   static RC create(Db *db, UpdateSqlNode &update_sql, Stmt *&stmt);
 
 private:
-  Table                 *table_       = nullptr;
-  const FieldMeta       *field_       = nullptr;
-  unique_ptr<Expression> value_expr_;
-  FilterStmt            *filter_stmt_ = nullptr;
+  Table                    *table_       = nullptr;
+  vector<UpdateAssignment>  assignments_;
+  FilterStmt               *filter_stmt_ = nullptr;
 };

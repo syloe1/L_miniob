@@ -337,8 +337,16 @@ bool ArithmeticExpr::equal(const Expression &other) const
     return false;
   }
   auto &other_arith_expr = static_cast<const ArithmeticExpr &>(other);
-  return arithmetic_type_ == other_arith_expr.arithmetic_type() && left_->equal(*other_arith_expr.left_) &&
-         right_->equal(*other_arith_expr.right_);
+  if (arithmetic_type_ != other_arith_expr.arithmetic_type() || !left_->equal(*other_arith_expr.left_)) {
+    return false;
+  }
+  // Unary operators (e.g. NEGATIVE) have no right operand.
+  const Expression *this_right  = right_.get();
+  const Expression *other_right = other_arith_expr.right_.get();
+  if (this_right == nullptr || other_right == nullptr) {
+    return this_right == other_right;
+  }
+  return this_right->equal(*other_right);
 }
 AttrType ArithmeticExpr::value_type() const
 {
@@ -471,10 +479,13 @@ RC ArithmeticExpr::get_value(const Tuple &tuple, Value &value) const
     LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
     return rc;
   }
-  rc = right_->get_value(tuple, right_value);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
-    return rc;
+  // Unary operators (e.g. NEGATIVE) have no right operand.
+  if (right_) {
+    rc = right_->get_value(tuple, right_value);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
+      return rc;
+    }
   }
   return calc_value(left_value, right_value, value);
 }
@@ -494,10 +505,13 @@ RC ArithmeticExpr::get_column(Chunk &chunk, Column &column)
     LOG_WARN("failed to get column of left expression. rc=%s", strrc(rc));
     return rc;
   }
-  rc = right_->get_column(chunk, right_column);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get column of right expression. rc=%s", strrc(rc));
-    return rc;
+  // Unary operators (e.g. NEGATIVE) have no right operand.
+  if (right_) {
+    rc = right_->get_column(chunk, right_column);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to get column of right expression. rc=%s", strrc(rc));
+      return rc;
+    }
   }
   return calc_column(left_column, right_column, column);
 }

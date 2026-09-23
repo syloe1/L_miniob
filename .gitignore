@@ -47,3 +47,11 @@ src/cpplings/lock
 src/cpplings/mutex
 src/cpplings/smartptr
 
+# local Claude Code config — settings.json holds a live API token
+.claude/settings.json
+.claude/settings.local.json
+
+# local run output
+data/observer.log.*
+result_output/*.tmp
+

@@ -140,6 +140,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   TableRefSqlNode *                          table_ref;
   vector<string> *                           key_list;
   vector<OrderBySqlNode> *                   order_by_list;
+  vector<UpdateSqlNode::Assignment> *        update_set_list;
   char *                                     cstring;
   int                                        number;
   float                                      floats;
@@ -158,6 +159,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %destructor { delete $$; } <table_ref>
 %destructor { delete $$; } <key_list>
 %destructor { delete $$; } <order_by_list>
+%destructor { delete $$; } <update_set_list>
 
 %token <number> NUMBER
 %token <floats> FLOAT
@@ -169,6 +171,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <number>              type
 %type <condition>           condition
 %type <value>               value
+%type <value>               insert_value
 %type <number>              number
 %type <cstring>             relation
 %type <comp>                comp_op
@@ -190,6 +193,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <order_by_list>       opt_order_by
 %type <order_by_list>       order_by_list
 %type <order_by_list>       order_by_item
+%type <update_set_list>     update_set_list
 %type <cstring>             fields_terminated_by
 %type <cstring>             enclosed_by
 %type <sql_node>            calc_stmt
@@ -432,16 +436,33 @@ insert_stmt:        /*insert   语句的语法解析树*/
     ;
 
 value_list:
-    value
+    insert_value
     {
       $$ = new vector<Value>;
       $$->emplace_back(*$1);
       delete $1;
     }
-    | value_list COMMA value { 
+    | value_list COMMA insert_value {
       $$ = $1;
       $$->emplace_back(*$3);
       delete $3;
+    }
+    ;
+/* An inserted value, which unlike `value` may carry a leading minus sign.
+   Kept separate from `value` so the sign does not introduce grammar conflicts
+   in expression/condition contexts, where `value` is also used. */
+insert_value:
+    value
+    {
+      $$ = $1;
+    }
+    | '-' NUMBER {
+      $$ = new Value(-(int)$2);
+      @$ = @1;
+    }
+    | '-' FLOAT {
+      $$ = new Value(-(float)$2);
+      @$ = @1;
     }
     ;
 value:
@@ -482,16 +503,36 @@ delete_stmt:    /*  delete 语句的语法解析树*/
     }
     ;
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ expression where
+    UPDATE ID SET update_set_list where
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
       $$->update.relation_name = $2;
-      $$->update.attribute_name = $4;
-      $$->update.value.reset($6);
-      if ($7 != nullptr) {
-        $$->update.conditions.swap(*$7);
-        delete $7;
+      $$->update.assignments   = std::move(*$4);
+      delete $4;
+      if ($5 != nullptr) {
+        $$->update.conditions.swap(*$5);
+        delete $5;
       }
+    }
+    ;
+
+/* 支持多列赋值：SET a = 1, b = 2 */
+update_set_list:
+    ID EQ expression
+    {
+      $$ = new vector<UpdateSqlNode::Assignment>;
+      UpdateSqlNode::Assignment assignment;
+      assignment.attribute_name = $1;
+      assignment.value.reset($3);
+      $$->emplace_back(std::move(assignment));
+    }
+    | update_set_list COMMA ID EQ expression
+    {
+      $$ = $1;
+      UpdateSqlNode::Assignment assignment;
+      assignment.attribute_name = $3;
+      assignment.value.reset($5);
+      $$->emplace_back(std::move(assignment));
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/

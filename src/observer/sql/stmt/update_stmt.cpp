@@ -19,8 +19,8 @@ See the Mulan PSL v2 for more details. */
 #include "storage/db/db.h"
 #include "storage/table/table.h"
 
-UpdateStmt::UpdateStmt(Table *table, const FieldMeta *field, unique_ptr<Expression> value_expr, FilterStmt *filter_stmt)
-    : table_(table), field_(field), value_expr_(std::move(value_expr)), filter_stmt_(filter_stmt)
+UpdateStmt::UpdateStmt(Table *table, vector<UpdateAssignment> assignments, FilterStmt *filter_stmt)
+    : table_(table), assignments_(std::move(assignments)), filter_stmt_(filter_stmt)
 {}
 
 UpdateStmt::~UpdateStmt()
@@ -47,33 +47,47 @@ RC UpdateStmt::create(Db *db, UpdateSqlNode &update_sql, Stmt *&stmt)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  const FieldMeta *field = table->table_meta().field(update_sql.attribute_name.c_str());
-  if (nullptr == field) {
-    LOG_WARN("no such field. table=%s, field=%s", table_name, update_sql.attribute_name.c_str());
-    return RC::SCHEMA_FIELD_NOT_EXIST;
+  if (update_sql.assignments.empty()) {
+    LOG_WARN("update statement has no assignment. table=%s", table_name);
+    return RC::INVALID_ARGUMENT;
   }
 
-  // 绑定 SET 右侧表达式（C_BALANCE -> FieldExpr，+ -> ArithmeticExpr）
+  // 绑定每个 SET 右侧表达式（C_BALANCE -> FieldExpr，+ -> ArithmeticExpr）
   BinderContext binder_context;
   binder_context.add_table(table);
   ExpressionBinder expression_binder(binder_context);
 
-  vector<unique_ptr<Expression>> bound_expressions;
-  RC                             rc = expression_binder.bind_expression(update_sql.value, bound_expressions);
-  if (OB_FAIL(rc)) {
-    LOG_WARN("failed to bind update value expression. rc=%s", strrc(rc));
-    return rc;
-  }
-  if (bound_expressions.size() != 1) {
-    LOG_WARN("update value expression must resolve to a single expression. got %zu", bound_expressions.size());
-    return RC::INVALID_ARGUMENT;
+  vector<UpdateAssignment> assignments;
+  assignments.reserve(update_sql.assignments.size());
+  for (auto &sql_assignment : update_sql.assignments) {
+    const FieldMeta *field = table->table_meta().field(sql_assignment.attribute_name.c_str());
+    if (nullptr == field) {
+      LOG_WARN("no such field. table=%s, field=%s", table_name, sql_assignment.attribute_name.c_str());
+      return RC::SCHEMA_FIELD_NOT_EXIST;
+    }
+
+    vector<unique_ptr<Expression>> bound_expressions;
+    RC                             rc = expression_binder.bind_expression(sql_assignment.value, bound_expressions);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to bind update value expression. rc=%s", strrc(rc));
+      return rc;
+    }
+    if (bound_expressions.size() != 1) {
+      LOG_WARN("update value expression must resolve to a single expression. got %zu", bound_expressions.size());
+      return RC::INVALID_ARGUMENT;
+    }
+
+    UpdateAssignment assignment;
+    assignment.field      = field;
+    assignment.value_expr = std::move(bound_expressions[0]);
+    assignments.emplace_back(std::move(assignment));
   }
 
   unordered_map<string, Table *> table_map;
   table_map.insert(pair<string, Table *>(string(table_name), table));
 
   FilterStmt *filter_stmt = nullptr;
-  rc = FilterStmt::create(db,
+  RC          rc          = FilterStmt::create(db,
       table,
       &table_map,
       update_sql.conditions.data(),
@@ -84,6 +98,6 @@ RC UpdateStmt::create(Db *db, UpdateSqlNode &update_sql, Stmt *&stmt)
     return rc;
   }
 
-  stmt = new UpdateStmt(table, field, std::move(bound_expressions[0]), filter_stmt);
+  stmt = new UpdateStmt(table, std::move(assignments), filter_stmt);
   return RC::SUCCESS;
 }

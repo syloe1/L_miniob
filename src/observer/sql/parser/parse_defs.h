@@ -149,9 +149,15 @@ struct DeleteSqlNode
  */
 struct UpdateSqlNode
 {
-  string                   relation_name;   ///< Relation to update
-  string                   attribute_name;  ///< 更新的字段，仅支持一个字段
-  unique_ptr<Expression>   value;           ///< 更新的值表达式，仅支持一个字段
+  /// 单个 SET 赋值
+  struct Assignment
+  {
+    string                 attribute_name;  ///< 更新的字段
+    unique_ptr<Expression> value;           ///< 更新的值表达式
+  };
+
+  string                   relation_name;  ///< Relation to update
+  vector<Assignment>       assignments;    ///< SET 赋值列表，支持多列
   vector<ConditionSqlNode> conditions;
 };
 

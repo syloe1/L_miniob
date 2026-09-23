@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include "sql/operator/logical_operator.h"
+#include "sql/stmt/update_stmt.h"
 
 /**
  * @brief 逻辑算子，用于执行update语句
@@ -23,18 +24,16 @@ See the Mulan PSL v2 for more details. */
 class UpdateLogicalOperator : public LogicalOperator
 {
 public:
-  UpdateLogicalOperator(Table *table, const FieldMeta *field, unique_ptr<Expression> value_expr);
+  UpdateLogicalOperator(Table *table, vector<UpdateAssignment> assignments);
   virtual ~UpdateLogicalOperator() = default;
 
   LogicalOperatorType type() const override { return LogicalOperatorType::UPDATE; }
   OpType              get_op_type() const override { return OpType::LOGICALUPDATE; }
 
-  Table                      *table() const { return table_; }
-  const FieldMeta            *field() const { return field_; }
-  unique_ptr<Expression>     &value_expr() { return value_expr_; }
+  Table                    *table() const { return table_; }
+  vector<UpdateAssignment> &assignments() { return assignments_; }
 
 private:
-  Table                 *table_      = nullptr;
-  const FieldMeta       *field_      = nullptr;
-  unique_ptr<Expression> value_expr_;
+  Table                    *table_ = nullptr;
+  vector<UpdateAssignment>  assignments_;
 };

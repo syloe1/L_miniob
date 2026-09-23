@@ -18,8 +18,8 @@ See the Mulan PSL v2 for more details. */
 #include "storage/table/table.h"
 #include "storage/trx/trx.h"
 
-UpdatePhysicalOperator::UpdatePhysicalOperator(Table *table, const FieldMeta *field, unique_ptr<Expression> value_expr)
-    : table_(table), field_(field), value_expr_(std::move(value_expr))
+UpdatePhysicalOperator::UpdatePhysicalOperator(Table *table, vector<UpdateAssignment> assignments)
+    : table_(table), assignments_(std::move(assignments))
 {}
 
 RC UpdatePhysicalOperator::open(Trx *trx)
@@ -59,13 +59,6 @@ RC UpdatePhysicalOperator::open(Trx *trx)
     eval_tuple.set_record(&old_record);
     eval_tuple.set_schema(table_, table_->table_meta().field_metas());
 
-    Value new_value;
-    rc = value_expr_->get_value(eval_tuple, new_value);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to evaluate update value expression: %s", strrc(rc));
-      return rc;
-    }
-
     Record new_record;
     rc = new_record.copy_data(old_record.data(), old_record.len());
     if (rc != RC::SUCCESS) {
@@ -75,10 +68,20 @@ RC UpdatePhysicalOperator::open(Trx *trx)
     new_record.set_key(old_record.key());
     new_record.set_rid(old_record.rid());
 
-    rc = table_->set_value_to_record(new_record.data(), new_value, field_);
-    if (rc != RC::SUCCESS) {
-      LOG_WARN("failed to set value to record: %s", strrc(rc));
-      return rc;
+    // 每个 SET 的右侧都基于原始行求值，再统一写入新行。
+    for (UpdateAssignment &assignment : assignments_) {
+      Value new_value;
+      rc = assignment.value_expr->get_value(eval_tuple, new_value);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to evaluate update value expression: %s", strrc(rc));
+        return rc;
+      }
+
+      rc = table_->set_value_to_record(new_record.data(), new_value, assignment.field);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to set value to record: %s", strrc(rc));
+        return rc;
+      }
     }
 
     rc = trx_->update_record(table_, old_record, new_record);

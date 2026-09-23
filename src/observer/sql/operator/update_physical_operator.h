@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include "sql/operator/physical_operator.h"
+#include "sql/stmt/update_stmt.h"
 
 class Trx;
 
@@ -25,7 +26,7 @@ class Trx;
 class UpdatePhysicalOperator : public PhysicalOperator
 {
 public:
-  UpdatePhysicalOperator(Table *table, const FieldMeta *field, unique_ptr<Expression> value_expr);
+  UpdatePhysicalOperator(Table *table, vector<UpdateAssignment> assignments);
 
   virtual ~UpdatePhysicalOperator() = default;
 
@@ -40,9 +41,8 @@ public:
   Tuple *current_tuple() override { return nullptr; }
 
 private:
-  Table                 *table_      = nullptr;
-  const FieldMeta       *field_      = nullptr;
-  unique_ptr<Expression> value_expr_;
-  Trx                   *trx_        = nullptr;
-  vector<Record>         records_;
+  Table                    *table_ = nullptr;
+  vector<UpdateAssignment>  assignments_;
+  Trx                      *trx_ = nullptr;
+  vector<Record>            records_;
 };

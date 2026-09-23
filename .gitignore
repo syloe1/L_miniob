@@ -38,6 +38,7 @@ data/miniob/db/
 
 # scratch notes
 thinking.md
+task.md
 
 # compiled cpplings binaries
 src/cpplings/cas

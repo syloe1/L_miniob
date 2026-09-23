@@ -59,16 +59,6 @@ RC SortPhysicalOperator::open(Trx *trx)
 
   child->close();
 
-  // Store the schema from the first tuple (or empty).
-  if (!entries_.empty()) {
-    const int cell_num = entries_[0].tuple->cell_num();
-    for (int i = 0; i < cell_num; i++) {
-      TupleCellSpec spec;
-      entries_[0].tuple->spec_at(i, spec);
-      schema_.append_cell(spec);
-    }
-  }
-
   // Sort the collected tuples based on the pre-computed order_by keys.
   if (!order_by_.empty()) {
     std::sort(entries_.begin(), entries_.end(), [this](const SortEntry &a, const SortEntry &b) {
@@ -112,6 +102,15 @@ Tuple *SortPhysicalOperator::current_tuple()
 
 RC SortPhysicalOperator::tuple_schema(TupleSchema &schema) const
 {
-  schema = schema_;
-  return RC::SUCCESS;
+  if (children_.empty()) {
+    return RC::UNIMPLEMENTED;
+  }
+  // Sorting only reorders rows; it does not change the tuple shape, so the
+  // schema is simply the child's. It has to be answerable *before* open() runs:
+  // SqlResult::set_operator() captures the schema when the operator tree is
+  // installed, and the MySQL protocol writes the column count from it before
+  // any row is produced. Deriving it from the materialised tuples inside open()
+  // left it empty at that point, so the server announced 0 columns and then
+  // sent rows, desynchronising the protocol ("Malformed packet").
+  return children_[0]->tuple_schema(schema);
 }

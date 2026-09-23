@@ -39,5 +39,4 @@ private:
   vector<bool>                   order_by_desc_;
   vector<SortEntry>              entries_;
   int                            current_index_ = 0;
-  TupleSchema                    schema_;
 };
